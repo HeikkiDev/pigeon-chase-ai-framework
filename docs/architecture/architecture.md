@@ -115,3 +115,64 @@ The system is organized around three main responsibilities:
 These responsibilities should remain loosely coupled through well-defined interfaces.
 
 The core application must remain hardware-independent so that the complete pipeline can be simulated and tested on macOS.
+
+## Development Principles
+
+These principles are the reason the architecture is shaped the way it is.
+They were previously held in `AGENTS.md`; that file is now the agent operating
+manual and this document owns the product description.
+
+* Keep hardware-independent domain logic separate from hardware integration.
+* Prefer interfaces and dependency injection at hardware boundaries.
+* Every important behaviour must be testable without physical hardware.
+* Provide simulations for hardware-dependent components where practical.
+* Never introduce Raspberry Pi or Arduino dependencies into `core/`.
+* Keep the system executable on macOS throughout development.
+* Preserve clear boundaries between detection, tracking, targeting,
+  communication and actuation.
+
+### Module boundaries
+
+| Module       | Responsibility                                                | May depend on          |
+| ------------ | ------------------------------------------------------------- | ---------------------- |
+| `core/`      | Detection contracts, target state machine, targeting maths, command generation | C++ standard library only |
+| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`                |
+| `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries only |
+| `tests/`     | Verification of the above using simulated implementations     | `core/`, GoogleTest    |
+
+The dependency direction is one-way into `core/`. A hardware header appearing
+anywhere under `core/` is an architectural defect, not a style issue.
+
+## Testing Strategy
+
+All tests must run on macOS without hardware (`REQ-DEV-001`).
+
+| Level        | Scope                                                        |
+| ------------ | ------------------------------------------------------------ |
+| Unit         | Individual algorithms and components in isolation            |
+| Integration  | Several components wired together with simulated hardware    |
+| Scenario     | Recorded frame sequences driven through the full pipeline    |
+| End-to-end   | Simulated camera → detection → targeting → simulated actuator |
+
+Fixtures must be deterministic: recorded images and scripted scenarios, never
+live captures or unseeded randomness (`REQ-DEV-002`).
+
+Hardware-in-the-loop testing will be introduced later and must remain separate
+from the default suite and from CI (`REQ-DEV-003`).
+
+## Safety Considerations
+
+The deterrent is an actuated water jet operating autonomously outdoors. The
+architecture must therefore treat firing as a guarded operation, not an
+ordinary command:
+
+* Angles are clamped to the mechanical envelope before transmission
+  (`REQ-AIM-002`).
+* Firing is prohibited inside a configured exclusion zone (`REQ-SAF-003`).
+* Fire duration is bounded and self-terminating (`REQ-SAF-001`).
+* Loss of the actuator link abandons the engagement (`REQ-COM-002`).
+* Startup and shutdown leave the actuator inactive (`REQ-SAF-004`).
+
+Safety limits are enforced on **both** sides of the device boundary: the
+Raspberry Pi must not request an unsafe action, and the Arduino must not
+perform one even if requested.

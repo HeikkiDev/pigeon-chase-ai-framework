@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: brew install ninja llvm
+
+      - name: Cache CMake dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/macos-debug/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('cmake/GoogleTest.cmake') }}
+
+      # Runs the exact same entry point developers and agents run locally.
+      - name: Run repository check
+        env:
+          PIGEON_STRICT_TOOLS: "1"
+        run: scripts/check.sh
+
+  traceability:
+    name: requirement traceability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every requirement is referenced by a test
+        run: scripts/trace.sh

@@ -1,85 +1,183 @@
-# Anti-Pigeon Deterrence System
+# AGENTS.md — Operating Manual
 
-## Overview
+**Read this before doing anything in this repository.**
 
-This project is a computer-vision-based system for detecting pigeons, tracking them, calculating where the system should point, and issuing deterrence commands.
+This file describes **how to work here**. It does not describe the product.
+For what the system does, read:
 
-The eventual system will use a Raspberry Pi for computer vision and an Arduino for low-level servo and actuator control.
+| Question                        | Document                             |
+| ------------------------------- | ------------------------------------ |
+| What must the system do?        | `docs/requirements/requirements.md`  |
+| How is the system structured?   | `docs/architecture/architecture.md`  |
+| What does this term mean?       | `docs/glossary.md`                   |
+| Why was this decided?           | `docs/decisions/`                    |
+| Who does what?                  | `.github/agents/README.md`           |
 
-**Hardware integration is a future phase. The current project must be completely runnable and testable on a MacBook without any physical hardware.**
+## Prime directive
 
-## Current Development Environment
+> Producing code is not the goal. Producing **evidence that the code is
+> correct** is the goal.
 
-Development and testing must work entirely on macOS.
+An agent's output is not a diff. It is a diff **plus** the command output that
+proves it works, **plus** the requirement IDs it satisfies.
 
-The codebase should not require:
+## The one command
 
-* Raspberry Pi
-* Arduino
-* Physical camera
-* Servo motors
-* Water actuator
-* GPIO
-* Other physical hardware
+```bash
+make check          # or: scripts/check.sh
+```
 
-Hardware-specific functionality must be isolated behind interfaces so that it can be replaced by software implementations, mocks, or simulators.
+This configures, builds, runs the tests, checks formatting and runs
+clang-tidy. **It is the definition of "healthy".** CI runs this exact script,
+so green locally means green in CI.
 
-## Architecture
+| Command                     | Use                                                |
+| --------------------------- | -------------------------------------------------- |
+| `make check`                | Full gate. Required before claiming any task done.  |
+| `make fast`                 | Build + tests only. Inner development loop.         |
+| `make fix`                  | Reformat sources with clang-format.                 |
+| `make clean`                | Delete `build/`.                                    |
+| `scripts/trace.sh`          | Requirement → test traceability matrix.             |
+| `ctest --preset macos-debug -R <regex>` | Run a subset of tests.                  |
 
-The intended system consists of two logical components:
+First-time setup: `brew install cmake ninja llvm`. GoogleTest is fetched
+automatically by CMake; do not vendor or install it manually.
 
-### Vision / Control
+If `clang-format` or `clang-tidy` are missing, `check.sh` warns and skips
+those steps locally, but CI runs with `PIGEON_STRICT_TOOLS=1` and will fail.
+Install them.
 
-Responsible for:
+## Repository layout
 
-* Image acquisition
-* Pigeon detection
-* Target tracking
-* Target position calculation
-* Generating commands for the actuator system
+```text
+core/                 Hardware-independent domain logic. No hardware headers. Ever.
+  include/pigeon/core/  Public headers
+  src/                  Implementation
+raspberry/            Raspberry Pi integration (future). Camera, serial host side.
+arduino/              Arduino firmware (future). Servos, water actuator.
+tests/                GoogleTest suites, mirroring the source tree.
+cmake/                Build helper modules.
+scripts/              check.sh (the gate) and trace.sh (traceability).
+docs/
+  requirements/       Authoritative specification, REQ-* IDs.
+  architecture/       System structure and boundaries.
+  decisions/          ADRs.
+  glossary.md         Shared vocabulary.
+.github/
+  agents/             Agent role definitions.
+  instructions/       Path-scoped coding conventions.
+  workflows/          CI.
+```
 
-During development, image acquisition and actuator control should use simulated or mocked implementations.
+The dependency direction is strict and one-way:
 
-### Actuator Control
+```text
+raspberry/ ──▶ core/ ◀── tests/
+arduino/   (separate firmware target)
+```
 
-Eventually responsible for:
+`core/` depends on nothing but the C++ standard library.
 
-* Receiving commands
-* Servo positioning
-* Actuator control
-* Hardware safety limits
+## Definition of Done
 
-For now, this component should be implemented and tested as a software simulation. No Arduino hardware should be required.
+A task is done only when **every** box is ticked:
 
-## Development Principles
+* [ ] The change is traceable to one or more `REQ-*` IDs, or is explicitly
+      labelled as infrastructure.
+* [ ] New or changed behaviour is covered by a test that names its `REQ-*` ID
+      in a comment.
+* [ ] `make check` passes, and its output is included in the response or PR.
+* [ ] `scripts/trace.sh` passes.
+* [ ] No new compiler warnings (the build is `-Werror`).
+* [ ] Hardware independence is preserved: `core/` still builds and tests with
+      no hardware present.
+* [ ] Any architectural decision is recorded as an ADR in `docs/decisions/`.
+* [ ] Assumptions made are stated explicitly in the response.
 
-* Keep hardware-independent domain logic separate from hardware integration.
-* Prefer interfaces and dependency injection at hardware boundaries.
-* Every important behavior should be testable without physical hardware.
-* Provide simulations for hardware-dependent components where practical.
-* Do not introduce Raspberry Pi or Arduino dependencies into core application logic.
-* Keep the system executable on macOS throughout development.
-* Changes should not require physical hardware to validate correctness.
-* Preserve clear boundaries between detection, tracking, targeting, communication, and actuation.
+**Never claim a task is complete without having actually run `make check`.**
+Reporting an unverified result is the single worst failure mode in this
+repository.
 
-## Testing
+## Rules for agents
 
-Tests must be executable on macOS without hardware.
+### Evidence
 
-Prefer:
+1. Run commands; do not predict their output.
+2. Quote real output. Never fabricate, abbreviate misleadingly, or reconstruct
+   from memory.
+3. If a command fails, report the failure. Do not silently work around it.
+4. State confidence honestly. "I believe" and "I verified" are different
+   claims.
 
-* Unit tests for individual algorithms and components
-* Integration tests using simulated components
-* Deterministic test images and recorded scenarios
-* Simulated actuator responses
-* End-to-end tests that exercise the complete software pipeline
+### Requirements
 
-Hardware-in-the-loop testing will be introduced later and must remain separate from the normal development and CI test suite.
+5. Reference `REQ-*` IDs in commits, PRs, and test comments.
+6. **Do not invent requirements.** If behaviour is unspecified, add an entry to
+   the Open Questions table in `docs/requirements/requirements.md` and stop.
+7. Changing an approved requirement requires an ADR and maintainer approval.
 
-## Documentation
+### Code
 
-The system architecture and requirements are in `docs/architecture` and `docs/requirements`.
+8. Do not invent APIs. Read the header before calling into it.
+9. Do not reference files, functions or targets without confirming they exist.
+10. Keep `core/` free of hardware, camera, GPIO, serial and platform headers.
+11. Prefer interfaces and dependency injection at every hardware boundary.
+12. No new third-party dependency without an ADR. Justify it against the
+    Raspberry Pi 3B's 1 GB RAM budget.
+13. Make surgical changes. Do not reformat, rename or "tidy" unrelated code.
 
-Document important architectural decisions as ADRs in `docs/decisions/`.
+### Tests
 
-Document interfaces between logical components even when their eventual implementation will run on different physical devices.
+14. Never weaken, skip, `DISABLED_`, or delete a test to make a build pass.
+15. Never modify production code solely to make a test pass without
+    understanding the failure.
+16. Tests must be deterministic: no wall clock, no unseeded randomness, no
+    network, no dependence on test ordering (`REQ-DEV-002`).
+17. Hardware-in-the-loop tests stay out of the default suite (`REQ-DEV-003`).
+
+### Scope
+
+18. Do the task asked. Raise adjacent problems; do not fix them unprompted.
+19. When stuck after two genuine attempts, stop and ask rather than guessing.
+20. Do not create planning or summary markdown files unless asked.
+
+## Escalate instead of guessing
+
+Stop and ask the maintainer when:
+
+* A requirement is ambiguous or contradicts another requirement.
+* The task needs an answer from the Open Questions table.
+* A change would break hardware independence.
+* A change would alter a documented interface or the device protocol.
+* A safety requirement (`REQ-SAF-*`) is affected.
+* A new dependency seems necessary.
+
+## Commits and pull requests
+
+Conventional Commits, with requirement references in the body:
+
+```text
+feat(core): confirm targets after three consecutive detections
+
+Implements the confirmation counter and the SEARCHING -> TARGET_LOCKED
+transition.
+
+Refs: REQ-TRK-002, REQ-TRK-003
+```
+
+Types: `feat`, `fix`, `test`, `docs`, `refactor`, `build`, `ci`, `chore`.
+Scopes: `core`, `raspberry`, `arduino`, `tests`, `docs`, `ci`, `agents`.
+
+Every PR description must contain:
+
+1. What changed and why.
+2. The `REQ-*` IDs addressed.
+3. The `make check` output.
+4. Assumptions made and open questions raised.
+
+## Current phase
+
+Hardware integration is a **future** phase. Everything must build, run and be
+tested on macOS with no Raspberry Pi, Arduino, camera, servo, water actuator or
+GPIO present (`REQ-DEV-001`). Hardware-dependent behaviour is exercised through
+simulated implementations behind interfaces.
