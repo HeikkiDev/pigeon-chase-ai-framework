@@ -1,11 +1,9 @@
-# Copilot Instructions
+# GitHub Copilot Instructions
 
-Follow the engineering rules defined in `AGENTS.md`.
+@../AGENTS.md
 
-Use the repository agents and instructions when applicable.
+## Copilot-specific behavior
 
-Before making significant changes, inspect the relevant
-requirements and architecture documentation.
-
-Do not consider a task complete until the repository
-validation workflow passes.
+- Use Copilot CLI capabilities when they are appropriate.
+- Prefer repository-local documentation over assumptions.
+- When a task is ambiguous, inspect the codebase before asking unnecessary questions.
