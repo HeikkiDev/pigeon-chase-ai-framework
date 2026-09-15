@@ -22,3 +22,8 @@ function(pigeon_add_test name)
 endfunction()
 
 add_subdirectory(core)
+
+# The gate-script suite needs a POSIX shell. It is required, not optional: the
+# enforcement scripts are part of the product's evidence chain.
+find_program(BASH_PROGRAM bash REQUIRED)
+add_subdirectory(scripts)
