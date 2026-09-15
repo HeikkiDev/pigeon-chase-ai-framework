@@ -1,0 +1,8 @@
+63bb9f2f52f2803458e66f17f990522ef6d09902
+# Adoption baseline for scripts/tdd-check.sh.
+#
+# Commits in this commit's ancestry predate the acceptance-test-first workflow
+# and are not policed by the gate. Every commit after it is.
+#
+# Do not move this line backwards, and do not move it forwards to excuse a
+# violation. Moving it forwards requires an ADR.

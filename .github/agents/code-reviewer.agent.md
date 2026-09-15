@@ -18,8 +18,10 @@ Work through this in order and report the result of each step.
 
 1. **Run the gate yourself.** `make check`. Do not take a reported result on
    trust. If it fails, that is the review outcome.
-2. **Run `scripts/trace.sh`.** Every requirement marked `Implemented` must have
-   a verifying test.
+2. **Run `scripts/trace.sh`.** No coverage regressions, no dangling
+   supersessions, and no test citing a requirement that does not exist.
+   Requirements carry no status field — implementation status is derived from
+   the tests (ADR-0006).
 3. **Requirement traceability.** Does the change name `REQ-*` IDs? Does the
    code actually implement what the requirement's Acceptance criteria say — not
    something adjacent?

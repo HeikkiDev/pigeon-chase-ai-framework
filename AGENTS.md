@@ -27,17 +27,25 @@ proves it works, **plus** the requirement IDs it satisfies.
 make check          # or: scripts/check.sh
 ```
 
-This configures, builds, runs the tests, checks formatting and runs
-clang-tidy. **It is the definition of "healthy".** CI runs this exact script,
-so green locally means green in CI.
+This configures, builds, runs the tests, and then enforces the architectural
+rules, test determinism, requirement traceability and the test-first commit
+shape, before checking formatting and running clang-tidy. **It is the
+definition of "healthy".** CI runs this exact script, so green locally means
+green in CI.
+
+Every one of those gates is itself covered by tests in `tests/scripts/`, which
+plant a real violation and assert the gate rejects it. See ADR-0002.
 
 | Command                     | Use                                                |
 | --------------------------- | -------------------------------------------------- |
 | `make check`                | Full gate. Required before claiming any task done.  |
 | `make fast`                 | Build + tests only. Inner development loop.         |
+| `make asan`                 | Full gate under AddressSanitizer and UBSan.         |
+| `make arch`                 | `core/` purity and hardware-free test suite.        |
+| `make trace`                | Requirement → test traceability matrix.             |
+| `make workflow`             | Red-before-green evidence in the commit history.    |
 | `make fix`                  | Reformat sources with clang-format.                 |
 | `make clean`                | Delete `build/`.                                    |
-| `scripts/trace.sh`          | Requirement → test traceability matrix.             |
 | `ctest --preset macos-debug -R <regex>` | Run a subset of tests.                  |
 
 First-time setup: `brew install cmake ninja llvm`. GoogleTest is fetched
@@ -56,8 +64,9 @@ core/                 Hardware-independent domain logic. No hardware headers. Ev
 raspberry/            Raspberry Pi integration (future). Camera, serial host side.
 arduino/              Arduino firmware (future). Servos, water actuator.
 tests/                GoogleTest suites, mirroring the source tree.
+  scripts/              Tests for the gate scripts themselves.
 cmake/                Build helper modules.
-scripts/              check.sh (the gate) and trace.sh (traceability).
+scripts/              check.sh (the gate), arch-check.sh, trace.sh, tdd-check.sh.
 docs/
   requirements/       Authoritative specification, REQ-* IDs.
   architecture/       System structure and boundaries.

@@ -7,8 +7,12 @@ Ambiguous terminology is one of the main causes of agent drift.
 | ---------------------- | -------------------------------------------------------------------------------------------------------------- |
 | **Frame**              | A single image supplied to the detection component.                                                             |
 | **Detection result**   | The classification of one frame: `NONE` or `FOUND`. Nothing else (`REQ-DET-001`).                               |
-| **Confirmation counter** | The count of consecutive `FOUND` frames while in `SEARCHING`. Reset to zero by a `NONE` frame (`REQ-TRK-003`). |
-| **Confirmed target**   | A target that has satisfied the three-consecutive-`FOUND` rule (`REQ-TRK-002`).                                 |
+| **Detection**          | One pigeon located within a single frame, with a centroid and a bounding box.                                   |
+| **Track**              | A sequence of detections in successive frames associated as the same pigeon (`REQ-TRK-007`).                    |
+| **Association radius** | The maximum centroid distance at which a detection is matched to an existing track (`REQ-TRK-007`).             |
+| **Confirmation counter** | The count of consecutive frames in which one track was detected. Reset to zero when that track is absent (`REQ-TRK-003`). |
+| **Confirmed target**   | A track detected in three consecutive frames (`REQ-TRK-002`).                                                   |
+| **Selected target**    | The one confirmed track engaged in this engagement — the largest by bounding-box area (`REQ-TRK-008`).          |
 | **`SEARCHING`**        | Target state: no confirmed target. The initial state.                                                           |
 | **`TARGET_LOCKED`**    | Target state: a confirmed target exists and is being engaged.                                                   |
 | **`TARGET_LOST`**      | Target state: the verification frame after locking was `NONE`. Reachable only from `TARGET_LOCKED`.             |
@@ -19,7 +23,10 @@ Ambiguous terminology is one of the main causes of agent drift.
 | **Deterrent**          | The aimed water jet assembly. Preferred over "water gun" in specifications.                                     |
 | **Actuator system**    | The Arduino side: servos plus water actuator. Simulated during development.                                     |
 | **Exclusion zone**     | A configured region of angle space in which firing is prohibited (`REQ-SAF-003`).                                |
-| **Mechanical envelope** | The configured minimum and maximum angle of each servo axis (`REQ-AIM-002`).                                    |
+| **Mechanical envelope** | The configured minimum and maximum angle of each servo axis (`REQ-AIM-002`). Empty by default, so an uncalibrated system cannot fire. |
+| **Boresight**          | The alignment of the camera's optical axis with the nozzle's axis. The camera rides the pan/tilt rig (`REQ-AIM-001`, ADR-0004). |
+| **Boresight offset**   | The configured angular correction for imperfect camera/nozzle alignment (`REQ-AIM-001`).                        |
+| **Cool-down**          | The minimum interval after firing before another engagement may begin (`REQ-SAF-005`).                          |
 | **Simulated component** | A production-quality software implementation of a hardware interface, used for development and CI.             |
 | **Mock**               | A test double asserting on interactions. Used inside tests only, never shipped.                                 |
 | **Fixture**            | A recorded, version-controlled input (image or scenario) used for deterministic tests.                          |

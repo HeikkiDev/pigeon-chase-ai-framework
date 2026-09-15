@@ -41,31 +41,68 @@ The communication protocol between the Raspberry Pi and Arduino is a defined sys
 
 An object detection in a single camera frame is not sufficient to consider a pigeon confirmed.
 
-A pigeon detection must be confirmed across **three consecutive positive camera frames** before it becomes a confirmed target.
+Detections are associated across frames into **tracks**: each detection is
+matched to the nearest existing track whose centroid lies within a configured
+association radius, and an unmatched detection starts a new track. A pigeon is
+confirmed only when **the same track** has been detected in three consecutive
+frames (ADR-0003).
 
 Conceptually:
 
 ```text
-Frame 1: pigeon detected
-        ↓
-Frame 2: pigeon detected
-        ↓
-Frame 3: pigeon detected
+Frame 1: pigeon detected  ─┐
+        ↓                   │ all associated to one track
+Frame 2: pigeon detected  ─┤ (centroids within the association radius)
+        ↓                   │
+Frame 3: pigeon detected  ─┘
         ↓
 Confirmed target
 ```
 
-Tracking is responsible for maintaining the identity and position of confirmed targets across subsequent frames.
+Three detections that cannot be associated into a single track do **not**
+confirm a target: that is three birds passing through, not one bird sitting
+still.
 
-The exact detection, tracking, and temporal association algorithms are implementation details and should remain independent from the camera and hardware interfaces.
+When several tracks are confirmable at once, exactly one is engaged — the
+largest by bounding-box area, with deterministic tie-breaking
+(`REQ-TRK-008`). Pigeons are gregarious, so this case is the norm rather than
+an exception.
+
+The detection model itself remains an implementation detail and stays
+independent of the camera and hardware interfaces.
 
 ## Targeting
 
-Once a pigeon has been confirmed, the system calculates its position relative to the deterrent.
+Once a pigeon has been confirmed, the system converts the selected track's
+centroid into the X and Y angles required to point the deterrent at it.
 
-The targeting subsystem converts the detected target position into the X and Y angles required to point the deterrent toward the target.
+**The camera is mounted on the pan/tilt rig, boresighted with the nozzle**
+(ADR-0004). Camera and nozzle therefore point the same way and move together,
+so a target's angular offset from the image centre *is* the correction the
+servos must apply:
 
-This calculation depends on the geometry and calibration of the camera and actuator system. The coordinate systems, calibration parameters, and transformations must be explicitly defined and documented.
+```text
+angle_x = neutral_x + boresight_x + ((cx - width/2)  / width)  * HFOV
+angle_y = neutral_y + boresight_y - ((cy - height/2) / height) * VFOV
+```
+
+This is deliberately depth-independent: no range estimate to the bird is
+required, which is what makes single-camera aiming tractable at all.
+
+Coordinate conventions:
+
+| Frame  | Convention                                                          |
+| ------ | -------------------------------------------------------------------- |
+| Image  | Origin top-left, +x right, +y **down**.                              |
+| Servo  | X = 0° straight ahead, +X right. Y = 0° horizontal, +Y elevated.     |
+
+The sign flip on the Y term is the handedness change between the two frames.
+
+Calibration — fields of view, boresight offset, neutral angles, mechanical
+envelope and association radius — lives in a version-controlled key/value file,
+is parsed in `raspberry/`, and reaches `core/` as a plain value type
+(`REQ-AIM-003`). The default envelope is empty, so an uncalibrated system is
+inert rather than dangerous.
 
 ## Hardware Independence
 
@@ -167,12 +204,23 @@ architecture must therefore treat firing as a guarded operation, not an
 ordinary command:
 
 * Angles are clamped to the mechanical envelope before transmission
-  (`REQ-AIM-002`).
+  (`REQ-AIM-002`), and the default envelope is empty.
 * Firing is prohibited inside a configured exclusion zone (`REQ-SAF-003`).
-* Fire duration is bounded and self-terminating (`REQ-SAF-001`).
+* Fire duration is bounded at 500 ms and self-terminating **in firmware**, so
+  the bound survives a Raspberry Pi failure (`REQ-SAF-001`).
+* Engagements are rate limited: a 2 s cool-down and at most 6 per minute
+  (`REQ-SAF-005`).
 * Loss of the actuator link abandons the engagement (`REQ-COM-002`).
 * Startup and shutdown leave the actuator inactive (`REQ-SAF-004`).
 
 Safety limits are enforced on **both** sides of the device boundary: the
 Raspberry Pi must not request an unsafe action, and the Arduino must not
 perform one even if requested.
+
+### Where time lives
+
+The target state machine counts **frames**, never milliseconds: verification
+uses the immediately following frame and reads no clock, which keeps the
+safety-critical component a pure function and its tests free of timing
+(ADR-0005). Elapsed real time appears in exactly two places — the rate limiter,
+through an injected monotonic clock, and the firmware's own burst timer.

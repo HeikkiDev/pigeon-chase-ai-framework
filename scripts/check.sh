@@ -7,14 +7,24 @@
 # a green run in CI.
 #
 # Usage:
-#   scripts/check.sh                 # configure + build + test + format + tidy
+#   scripts/check.sh                 # the full gate
 #   scripts/check.sh --preset macos-release
 #   scripts/check.sh --skip-tidy     # faster inner loop
 #   scripts/check.sh --fix           # rewrite files with clang-format
 #
+# Steps, in order:
+#   configure, build, test, architectural rules, determinism, traceability,
+#   workflow evidence, formatting, clang-tidy.
+#
+# Each step is skippable for the inner loop (--skip-tests, --skip-arch,
+# --skip-determinism, --skip-trace, --skip-workflow, --skip-format,
+# --skip-tidy) but CI runs all of them.
+#
 # Environment:
 #   PIGEON_STRICT_TOOLS=1  Fail (instead of warn) when clang-format or
 #                          clang-tidy are not installed. Set this in CI.
+#   PIGEON_COMMIT_RANGE    Commit range for the workflow-evidence check.
+#                          Defaults to origin/main..HEAD.
 
 set -euo pipefail
 
@@ -25,17 +35,25 @@ PRESET="macos-debug"
 SKIP_TIDY=0
 SKIP_FORMAT=0
 SKIP_TESTS=0
+SKIP_ARCH=0
+SKIP_DETERMINISM=0
+SKIP_TRACE=0
+SKIP_WORKFLOW=0
 FIX=0
 STRICT_TOOLS="${PIGEON_STRICT_TOOLS:-0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --preset)      PRESET="$2"; shift 2 ;;
-    --skip-tidy)   SKIP_TIDY=1; shift ;;
-    --skip-format) SKIP_FORMAT=1; shift ;;
-    --skip-tests)  SKIP_TESTS=1; shift ;;
-    --fix)         FIX=1; shift ;;
-    -h|--help)     sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --preset)           PRESET="$2"; shift 2 ;;
+    --skip-tidy)        SKIP_TIDY=1; shift ;;
+    --skip-format)      SKIP_FORMAT=1; shift ;;
+    --skip-tests)       SKIP_TESTS=1; shift ;;
+    --skip-arch)        SKIP_ARCH=1; shift ;;
+    --skip-determinism) SKIP_DETERMINISM=1; shift ;;
+    --skip-trace)       SKIP_TRACE=1; shift ;;
+    --skip-workflow)    SKIP_WORKFLOW=1; shift ;;
+    --fix)              FIX=1; shift ;;
+    -h|--help)     sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)             echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -106,6 +124,51 @@ if [[ "$SKIP_TESTS" == "0" ]]; then
   ok "all tests passed"
 else
   warn "tests skipped"
+fi
+
+# --------------------------------------------------------- architectural rules --
+# REQ-DET-002, REQ-DEV-001, REQ-DEV-003. A hardware header under core/ is an
+# architectural defect, so it fails the build rather than being a review note.
+if [[ "$SKIP_ARCH" == "0" ]]; then
+  scripts/arch-check.sh || fail "architectural rules violated"
+else
+  warn "architectural rule check skipped"
+fi
+
+# ------------------------------------------------------------- determinism --
+# REQ-DEV-002: "Repeated runs, including shuffled runs, produce identical
+# results." Asserting that in prose proves nothing; running it does.
+if [[ "$SKIP_DETERMINISM" == "0" && "$SKIP_TESTS" == "0" ]]; then
+  step "Checking test determinism (shuffled and repeated)"
+  ctest --preset "$PRESET" --schedule-random --repeat until-fail:2 > /dev/null \
+    || fail "tests are not deterministic under shuffling or repetition (REQ-DEV-002)"
+  ok "suite is order-independent and repeatable"
+else
+  warn "determinism check skipped"
+fi
+
+# ------------------------------------------------------------- traceability --
+# Runs inside the gate, not only in CI: the Definition of Done requires it, and
+# a check that agents must remember to run separately is a check they will
+# forget to run.
+if [[ "$SKIP_TRACE" == "0" ]]; then
+  step "Checking requirement traceability"
+  scripts/trace.sh > /dev/null || fail "traceability gaps - run scripts/trace.sh"
+  ok "no coverage regressions; unverified work is reported"
+else
+  warn "traceability check skipped"
+fi
+
+# --------------------------------------------------------- workflow evidence --
+# Verifies red-before-green in the commit history (see .github/agents/README.md).
+if [[ "$SKIP_WORKFLOW" == "0" ]]; then
+  if [[ -n "${PIGEON_COMMIT_RANGE:-}" ]]; then
+    scripts/tdd-check.sh --range "$PIGEON_COMMIT_RANGE" || fail "workflow evidence missing"
+  else
+    scripts/tdd-check.sh || fail "workflow evidence missing"
+  fi
+else
+  warn "workflow evidence check skipped"
 fi
 
 # ------------------------------------------------------------------- format --

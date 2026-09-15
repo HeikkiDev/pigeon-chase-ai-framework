@@ -1,0 +1,19 @@
+# Verified requirement baseline — the coverage ratchet.
+#
+# Every requirement ID listed here has been verified by at least one test, and
+# must remain so. scripts/trace.sh fails if any of them loses its coverage.
+#
+# This exists because deleting a test is otherwise silent: the suite simply
+# gets smaller and still passes. AGENTS.md rule 14 forbids removing a test to
+# get a green build; this file is what enforces it.
+#
+# To add entries after genuinely adding coverage:
+#
+#     scripts/trace.sh --update-baseline
+#
+# Never remove an entry to make the gate pass. If a requirement is genuinely
+# retired, add "**Superseded by:** REQ-..." to it in requirements.md instead —
+# the ratchet honours that, and the ID stays reserved forever.
+#
+# Currently empty: no product code exists yet, so nothing is verified. All 24
+# requirements are reported as UNVERIFIED outstanding work.

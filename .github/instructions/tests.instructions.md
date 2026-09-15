@@ -60,10 +60,15 @@ Inject a fake clock and a simulated hardware implementation instead.
 
 ## Rules
 
+- Tests come **first**. Write the test against the declared interface, watch it
+  fail for the right reason, and commit it as `test(...)` before any production
+  behaviour exists. See `.github/agents/README.md` for the handoff contract.
+- When retrofitting a test onto behaviour that already exists, you cannot
+  observe a genuine red step, so manufacture one: break the specific branch the
+  test names, confirm it fails for the right reason, restore it, and report
+  that the test was retrofitted rather than red-first.
 - **Never** weaken, narrow, `DISABLED_`, skip or delete a test to make a build
   pass. If a test is wrong, fix it deliberately and say so.
 - **Never** modify production code purely to satisfy a test without
   understanding the failure.
-- Confirm a new test can actually fail before trusting it: break the behaviour,
-  see it go red, restore it. Report that you did this.
 - Assertion messages should explain what was expected and why it matters.
