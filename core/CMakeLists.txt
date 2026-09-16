@@ -3,6 +3,7 @@ add_library(pigeon_core
   src/build_info.cpp
   src/detection.cpp
   src/geometry.cpp
+  src/safety_policy.cpp
   src/target_state.cpp
   src/track.cpp
   # Compiles every public header, so an interface-only change is still checked
