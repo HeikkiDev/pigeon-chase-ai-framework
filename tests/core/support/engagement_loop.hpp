@@ -1,8 +1,8 @@
 #pragma once
 
-// Verifies: support code for REQ-COM-002, REQ-SAF-002, REQ-SAF-005,
-// REQ-SAF-007, REQ-SAF-008, REQ-TRK-011, REQ-TRK-012 — the application loop
-// the scenario tests drive.
+// Verifies: support code for REQ-COM-002, REQ-COM-003, REQ-SAF-002,
+// REQ-SAF-005, REQ-SAF-007, REQ-SAF-008, REQ-TRK-011, REQ-TRK-012 — the
+// application loop the scenario tests drive.
 //
 // This is the wiring `raspberry/` will eventually own: associate, advance,
 // authorise, transmit. It lives in tests/ because no such loop exists yet and
@@ -36,10 +36,6 @@ struct FrameOutcome {
   std::optional<pigeon::core::FireRefusal> refusal;
   std::optional<pigeon::core::ServoAngles> commanded_aim;
   std::optional<pigeon::core::LinkStatus> fire_status;
-  /// The link health presented to `authorise_fire` (`REQ-SAF-008`), recorded so
-  /// a scenario can assert which status actually reached the policy rather than
-  /// assuming it.
-  std::optional<pigeon::core::LinkStatus> link_status_presented;
   std::vector<pigeon::core::Track> tracks_after;
 };
 
@@ -54,23 +50,21 @@ class EngagementLoop {
         link_{&link},
         image_size_{image_size} {}
 
-  /// What the application currently believes about the link's health
-  /// (`REQ-SAF-008`).
+  /// What the application currently believes about the link's health: nothing,
+  /// and deliberately so (`REQ-COM-003`).
   ///
-  /// `ActuatorLink` offers no way to ask the device for a detailed status
-  /// before sending it something: `is_available()` is a bool hint, and every
-  /// richer answer arrives as the `LinkStatus` returned by an exchange that has
-  /// already happened. So an application's knowledge of link health is exactly
-  /// the outcome of its most recent exchange, and that is what this loop
-  /// presents to `authorise_fire`.
+  /// This loop holds no view of link health at all. It does not remember the
+  /// outcome of the last exchange, does not derive a status from anything, and
+  /// offers no way for a test to inject one. `authorise_fire` is handed the
+  /// link and asks it at the instant of the decision, so the only thing that
+  /// can make a fire decision see a fault is the link actually reporting one.
   ///
-  /// Tests that need a specific status at the moment of the fire decision — a
-  /// transport failure appearing between the aiming frame and the firing frame,
-  /// say — set it here. Passing `std::nullopt` returns the loop to deriving the
-  /// status from the link itself.
-  void set_observed_link_status(std::optional<pigeon::core::LinkStatus> status) noexcept {
-    observed_link_status_ = status;
-  }
+  /// An earlier version of this class did keep such a view, because
+  /// `ActuatorLink` had no way to be asked before a command was sent. That seam
+  /// was invented here, in the fixtures, and it was the finding that produced
+  /// `REQ-COM-003` and ADR-0016. It is gone: the interface answers the question
+  /// now, and a test that needs a fault at the fire decision sets it on the
+  /// link.
 
   /// Process one frame's detections.
   FrameOutcome process(const pigeon::core::DetectionOutcome& outcome) {
@@ -113,23 +107,6 @@ class EngagementLoop {
                                          configuration_.camera);
   }
 
-  /// The status the application presents to `authorise_fire` (`REQ-SAF-008`).
-  ///
-  /// In order: an explicit observation set by a test; otherwise the status of
-  /// the most recent exchange if that exchange failed, because a link that has
-  /// just failed is not known to be healthy; otherwise `UNAVAILABLE` if the
-  /// link says it is not usable; otherwise `OK`.
-  [[nodiscard]] pigeon::core::LinkStatus link_health() const {
-    if (observed_link_status_.has_value()) {
-      return *observed_link_status_;
-    }
-    if (last_exchange_status_ != pigeon::core::LinkStatus::OK) {
-      return last_exchange_status_;
-    }
-    return link_->is_available() ? pigeon::core::LinkStatus::OK
-                                 : pigeon::core::LinkStatus::UNAVAILABLE;
-  }
-
   void aim(const pigeon::core::TargetTransition& transition, FrameOutcome& result) {
     const std::optional<pigeon::core::ServoAngles> angles = angles_for(*transition.aim_at);
     const std::optional<pigeon::core::AimingCommand> command =
@@ -142,7 +119,6 @@ class EngagementLoop {
 
     result.commanded_aim = command->angles;
     const pigeon::core::LinkStatus status = link_->send_aiming_command(*command);
-    last_exchange_status_ = status;
     result.aiming_command_sent = true;
 
     if (status != pigeon::core::LinkStatus::OK) {
@@ -150,16 +126,17 @@ class EngagementLoop {
       // return to SEARCHING (`REQ-COM-002`).
       state_ = pigeon::core::abandon_engagement(state_);
       result.engagement_abandoned = true;
-      last_exchange_status_ = link_->send_safe_state_command();
+      static_cast<void>(link_->send_safe_state_command());
     }
   }
 
   void fire(const pigeon::core::TargetTransition& transition, FrameOutcome& result) {
     const std::optional<pigeon::core::ServoAngles> angles = angles_for(*transition.aim_at);
-    const pigeon::core::LinkStatus link_status = link_health();
-    result.link_status_presented = link_status;
+    // The link is asked, not told: the policy reads `health()` itself, at this
+    // instant, and there is no status this loop could supply instead
+    // (`REQ-COM-003`, `REQ-SAF-008`).
     const pigeon::core::FireAuthorisation authorisation = policy_.authorise_fire(
-        transition, angles.value_or(pigeon::core::ServoAngles{}), link_status);
+        transition, angles.value_or(pigeon::core::ServoAngles{}), *link_);
 
     if (!authorisation.granted().has_value()) {
       // Refused before transmission: no command, and nothing to record
@@ -171,7 +148,6 @@ class EngagementLoop {
     result.commanded_aim = authorisation.granted()->aim;
     const pigeon::core::FireCommand command{.duration = authorisation.granted()->duration};
     const pigeon::core::LinkStatus status = link_->send_fire_command(command);
-    last_exchange_status_ = status;
     result.fire_status = status;
     result.fire_command_sent = true;
     // Transmitted, so it counts — whatever came back (`REQ-SAF-007`).
@@ -184,9 +160,6 @@ class EngagementLoop {
   pigeon::core::ActuatorLink* link_{nullptr};
   pigeon::core::ImageSize image_size_{};
   pigeon::core::TargetMachineState state_{};
-  // Nothing has been exchanged yet, so nothing is known to be wrong.
-  pigeon::core::LinkStatus last_exchange_status_{pigeon::core::LinkStatus::OK};
-  std::optional<pigeon::core::LinkStatus> observed_link_status_;
 };
 
 }  // namespace pigeon::test_support

@@ -1,6 +1,7 @@
-// Verifies: REQ-COM-002, REQ-DET-001, REQ-DET-002, REQ-SAF-001, REQ-SAF-002,
-//           REQ-SAF-004, REQ-SAF-005, REQ-SAF-007, REQ-SAF-008, REQ-TRK-002,
-//           REQ-TRK-008, REQ-TRK-011, REQ-TRK-012, REQ-DEV-001, REQ-DEV-002
+// Verifies: REQ-COM-002, REQ-COM-003, REQ-DET-001, REQ-DET-002, REQ-SAF-001,
+//           REQ-SAF-002, REQ-SAF-004, REQ-SAF-005, REQ-SAF-007, REQ-SAF-008,
+//           REQ-TRK-002, REQ-TRK-008, REQ-TRK-011, REQ-TRK-012, REQ-DEV-001,
+//           REQ-DEV-002
 //
 // End-to-end scenarios: detection, association, the state machine, the safety
 // policy and a simulated actuator system, wired together exactly as the
@@ -224,10 +225,21 @@ TEST(EngagementScenario, TheFiredUponBirdMustEarnThreeFreshDetections) {
 // failure, or a rejection each produces no fire command", driven end to end:
 // the bird is confirmed, the rig aims over a healthy link, and only then does
 // the link go wrong, so the fire decision is the first one that sees the fault.
+// Verifies: REQ-COM-003 — "a link whose health degrades between the aiming
+// frame and the firing frame refuses the burst on the strength of the query
+// alone, with no intervening command."
 //
-// Every status in `all_link_statuses` is driven through the whole loop rather
-// than handed straight to the policy, because a rule that holds in a unit test
-// and is bypassed by the application protects nothing.
+// Every non-OK status is driven through the whole loop rather than handed
+// straight to the policy, because a rule that holds in a unit test and is
+// bypassed by the application protects nothing.
+//
+// The fault is set on the **link**, between the two frames, and the loop holds
+// no opinion about link health at all — it hands the link to the policy, which
+// asks. An earlier version of this test reached two of these statuses only
+// through a seam invented in the fixtures, and said so; that was the finding
+// which produced `REQ-COM-003`. The transmission count is asserted across the
+// refusal to show that the fault was learned by asking rather than by sending
+// something and watching it fail.
 TEST(EngagementScenario, NoLinkFaultProducesAFireCommand) {
   int faults_exercised = 0;
 
@@ -243,15 +255,21 @@ TEST(EngagementScenario, NoLinkFaultProducesAFireCommand) {
     ASSERT_TRUE(locking.aiming_command_sent)
         << "status " << static_cast<int>(status) << ": the rig must aim before it can fire";
 
-    // The fault appears after the aiming exchange and before the fire decision.
-    loop.set_observed_link_status(status);
+    // The link degrades between the aiming frame and the firing frame, with
+    // nothing sent in between to discover it (`REQ-COM-003`).
+    const int transmissions_after_aiming = link.transmissions();
+    link.set_status(status);
+    ASSERT_EQ(link.health(), status)
+        << "status " << static_cast<int>(status) << " must be reportable before any send";
+
     const FrameOutcome verification = loop.process(bird_frame());
 
     EXPECT_EQ(verification.intent, EngagementIntent::FIRE_AT_TARGET)
         << "status " << static_cast<int>(status)
         << ": the state machine still wanted to fire, so the policy is what refused";
-    EXPECT_EQ(verification.link_status_presented, status)
-        << "the loop must present the observed status to the policy";
+    EXPECT_EQ(link.transmissions(), transmissions_after_aiming)
+        << "status " << static_cast<int>(status)
+        << ": the burst was refused on the query alone, so nothing more may have been sent";
     EXPECT_FALSE(verification.fire_command_sent)
         << "status " << static_cast<int>(status) << " emitted a fire command";
     EXPECT_TRUE(link.fire_commands().empty())
@@ -274,15 +292,15 @@ TEST(EngagementScenario, NoLinkFaultProducesAFireCommand) {
 // counts, whatever the reply" (ADR-0011), followed end to end through a burst
 // the device rejected.
 //
-// Finding recorded in executable form: a rejected burst does **not** poison the
-// next engagement. `ActuatorLink` reports a detailed `LinkStatus` only as the
-// result of an exchange that has already happened, and the exchange
-// immediately before every fire decision is the *aiming* command of the
-// locking frame. So by the time the next fire decision is taken, the
-// application's most recent evidence about the link is that aiming succeeded,
-// and `REQ-SAF-008` is satisfied by presenting `OK`. The rejection is felt
-// through `REQ-SAF-007` — it consumed an engagement and started a cool-down —
-// and not through the link rule.
+// A rejected burst does **not** poison the next engagement. The rejection here
+// is the device refusing one command whose duration exceeded its own bound — a
+// working safety limit applied to that command — and it leaves the link itself
+// sound, so `health()` still reports `OK` at the next decision. The rejection
+// is felt through `REQ-SAF-007`: it consumed an engagement and started a
+// cool-down, because it was transmitted. It is not felt through `REQ-SAF-008`,
+// which asks about the link's condition and not about the fate of an earlier
+// command. The two are deliberately separate, and this test pins that
+// separation so neither rule quietly absorbs the other.
 TEST(EngagementScenario, ARejectedBurstStillCountsAndTheNextEngagementWaitsForTheCoolDown) {
   ManualClock clock;
   SimulatedActuatorLink link{clock};

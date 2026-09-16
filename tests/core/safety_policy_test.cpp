@@ -1,6 +1,6 @@
-// Verifies: REQ-AIM-002, REQ-COM-002, REQ-SAF-001, REQ-SAF-002, REQ-SAF-003,
-//           REQ-SAF-004, REQ-SAF-005, REQ-SAF-006, REQ-SAF-007, REQ-SAF-008,
-//           REQ-DEV-002
+// Verifies: REQ-AIM-002, REQ-COM-002, REQ-COM-003, REQ-SAF-001, REQ-SAF-002,
+//           REQ-SAF-003, REQ-SAF-004, REQ-SAF-005, REQ-SAF-006, REQ-SAF-007,
+//           REQ-SAF-008, REQ-DEV-002
 //
 // The guard between an intent to fire and a fire command. Every test here is
 // about a rule that must be able to say *no*, so the refusal reason is
@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -23,6 +24,7 @@
 #include "pigeon/core/target_state.hpp"
 #include "support/detection_builders.hpp"
 #include "support/manual_clock.hpp"
+#include "support/simulated_actuator_link.hpp"
 #include "support/test_configuration.hpp"
 
 namespace {
@@ -45,6 +47,7 @@ using pigeon::test_support::calibrated_configuration;
 using pigeon::test_support::detection_at;
 using pigeon::test_support::exclusion_zone;
 using pigeon::test_support::ManualClock;
+using pigeon::test_support::SimulatedActuatorLink;
 
 constexpr ServoAngles straight_ahead{.x = Angle{0.0}, .y = Angle{10.0}};
 
@@ -81,13 +84,14 @@ TEST(FireAuthorisationContract, IsRefusedAndNotConfirmedByDefault) {
 // intent produced after confirmation and re-verification.
 TEST(SafetyPolicyFire, RefusesEveryIntentOtherThanFireAtTarget) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   SafetyPolicy policy{calibrated_configuration(), clock};
 
   for (const EngagementIntent intent :
        {EngagementIntent::KEEP_SEARCHING, EngagementIntent::AIM_AT_TARGET,
         EngagementIntent::ABANDON}) {
     const FireAuthorisation authorisation =
-        policy.authorise_fire(transition_with(intent), straight_ahead, LinkStatus::OK);
+        policy.authorise_fire(transition_with(intent), straight_ahead, healthy_link);
 
     EXPECT_FALSE(authorisation.granted().has_value())
         << "intent " << static_cast<int>(intent) << " authorised a burst";
@@ -99,11 +103,12 @@ TEST(SafetyPolicyFire, RefusesEveryIntentOtherThanFireAtTarget) {
 // yields a policy that refuses every burst".
 TEST(SafetyPolicyFire, RefusesEveryBurstWhenTheRigIsUnconfigured) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   SafetyPolicy policy{Configuration{}, clock};
 
   for (const double y_degrees : {0.0, 10.0, 45.0}) {
     const FireAuthorisation authorisation = policy.authorise_fire(
-        fire_intent(), ServoAngles{.x = Angle{0.0}, .y = Angle{y_degrees}}, LinkStatus::OK);
+        fire_intent(), ServoAngles{.x = Angle{0.0}, .y = Angle{y_degrees}}, healthy_link);
 
     EXPECT_FALSE(authorisation.granted().has_value());
     EXPECT_EQ(authorisation.refusal_reason(), FireRefusal::NO_ENVELOPE);
@@ -115,10 +120,11 @@ TEST(SafetyPolicyFire, RefusesEveryBurstWhenTheRigIsUnconfigured) {
 // bounded by the configured maximum.
 TEST(SafetyPolicyFire, GrantsAConfirmedEngagementWithABoundedBurst) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   SafetyPolicy policy{calibrated_configuration(), clock};
 
   const FireAuthorisation authorisation =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
 
   ASSERT_TRUE(authorisation.granted().has_value());
   EXPECT_EQ(authorisation.granted()->aim, straight_ahead);
@@ -131,12 +137,13 @@ TEST(SafetyPolicyFire, GrantsAConfirmedEngagementWithABoundedBurst) {
 // duration follows the configuration, not the default.
 TEST(SafetyPolicyFire, NeverGrantsALongerBurstThanConfigured) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   Configuration configuration = calibrated_configuration();
   configuration.safety.max_fire_duration = milliseconds{120};
   SafetyPolicy policy{configuration, clock};
 
   const FireAuthorisation authorisation =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
 
   ASSERT_TRUE(authorisation.granted().has_value());
   EXPECT_LE(authorisation.granted()->duration, configuration.safety.max_fire_duration);
@@ -148,10 +155,11 @@ TEST(SafetyPolicyFire, NeverGrantsALongerBurstThanConfigured) {
 // never-below-the-horizon clamp on Y.
 TEST(SafetyPolicyFire, GrantsOnlyClampedAngles) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   SafetyPolicy policy{calibrated_configuration(), clock};
 
   const FireAuthorisation authorisation = policy.authorise_fire(
-      fire_intent(), ServoAngles{.x = Angle{170.0}, .y = Angle{-40.0}}, LinkStatus::OK);
+      fire_intent(), ServoAngles{.x = Angle{170.0}, .y = Angle{-40.0}}, healthy_link);
 
   ASSERT_TRUE(authorisation.granted().has_value());
   EXPECT_EQ(authorisation.granted()->aim.x, Angle{90.0});
@@ -163,17 +171,23 @@ TEST(SafetyPolicyFire, GrantsOnlyClampedAngles) {
 // REQ-COM-002 — a link that is not there.
 // ---------------------------------------------------------------------------
 
-// Verifies: REQ-COM-002 — "if the actuator link becomes unavailable, the
-// system SHALL NOT issue a fire command".
+// Verifies: REQ-COM-002, REQ-COM-003 — "if the actuator link becomes
+// unavailable, the system SHALL NOT issue a fire command", and "a link that
+// has become unavailable is refused on the strength of its reported health
+// alone, with no command sent to discover the fault".
 TEST(SafetyPolicyFire, RefusesWhenTheLinkIsUnavailable) {
   ManualClock clock;
+  SimulatedActuatorLink link{clock};
+  link.set_status(LinkStatus::UNAVAILABLE);
   SafetyPolicy policy{calibrated_configuration(), clock};
 
   const FireAuthorisation authorisation =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::UNAVAILABLE);
+      policy.authorise_fire(fire_intent(), straight_ahead, link);
 
   EXPECT_FALSE(authorisation.granted().has_value());
   EXPECT_EQ(authorisation.refusal_reason(), FireRefusal::LINK_UNAVAILABLE);
+  EXPECT_EQ(link.transmissions(), 0)
+      << "the fault was learned by asking, not by sending something and watching it fail";
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +279,18 @@ TEST(LinkStatusRefusalMapping, GivesNoTwoStatusesTheSameReason) {
 
 // Verifies: REQ-SAF-008 — "a link reporting OK and an otherwise permitted
 // engagement produces a fire command"; "a link reporting an unavailable link, a
-// transport failure, or a rejection each produces no fire command".
+// transport failure, or a rejection each produces no fire command"; and the
+// reachability bullet, "for each one there is a simulated link reporting it,
+// before any command is sent, that produces that status's refusal".
+// Verifies: REQ-COM-003 — "each link status is obtainable from a simulated link
+// before any command has been sent, and each reaches the fire decision".
+//
+// The link is built fresh for each status and nothing is ever sent over it, so
+// the status under test is the link's *health*, reported on demand, and not the
+// residue of an exchange. `transmissions()` is asserted to be zero at the
+// moment of the decision, which is what makes that claim checkable rather than
+// merely intended. Before `health()` existed, two of these four statuses could
+// not be produced at this point at all (ADR-0016).
 //
 // The expected refusal is read from `refusal_for` rather than written out, so
 // the test asserts the policy *uses the one mapping* instead of asserting a
@@ -278,9 +303,19 @@ TEST(SafetyPolicyFire, GrantsOnlyOverALinkReportingOk) {
   int granted = 0;
   int refused = 0;
   for (const LinkStatus status : all_link_statuses) {
+    SimulatedActuatorLink link{clock};
+    link.set_status(status);
+    ASSERT_EQ(link.health(), status)
+        << "status " << static_cast<int>(status) << " is not even reportable before a send";
+    ASSERT_EQ(link.transmissions(), 0)
+        << "the status must be the link's health, not the outcome of an exchange";
+
     const FireAuthorisation authorisation =
-        policy.authorise_fire(fire_intent(), straight_ahead, status);
+        policy.authorise_fire(fire_intent(), straight_ahead, link);
     const std::optional<FireRefusal> expected = refusal_for(status);
+
+    EXPECT_EQ(link.transmissions(), 0)
+        << "deciding whether to fire must send nothing over the link";
 
     if (expected.has_value()) {
       EXPECT_FALSE(authorisation.granted().has_value())
@@ -310,6 +345,7 @@ TEST(SafetyPolicyFire, GrantsOnlyOverALinkReportingOk) {
 // `LINK_REJECTED` — is caught by the same assertion.
 TEST(SafetyPolicyFire, GivesEveryCauseOfRefusalItsOwnReason) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   std::vector<FireRefusal> reasons;
 
   const auto record = [&reasons](const FireAuthorisation& authorisation, const char* cause) {
@@ -320,20 +356,24 @@ TEST(SafetyPolicyFire, GivesEveryCauseOfRefusalItsOwnReason) {
   // An unconfirmed engagement.
   SafetyPolicy confirmed_policy{calibrated_configuration(), clock};
   record(confirmed_policy.authorise_fire(transition_with(EngagementIntent::KEEP_SEARCHING),
-                                         straight_ahead, LinkStatus::OK),
+                                         straight_ahead, healthy_link),
          "an unconfirmed engagement");
 
   // An unconfigured rig: no envelope.
   SafetyPolicy unconfigured_policy{Configuration{}, clock};
-  record(unconfigured_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK),
+  record(unconfigured_policy.authorise_fire(fire_intent(), straight_ahead, healthy_link),
          "an empty envelope");
 
-  // Every link fault.
+  // Every link fault. A fresh link per status, reporting it before anything is
+  // sent (`REQ-COM-003`).
   for (const LinkStatus status : all_link_statuses) {
     if (status == LinkStatus::OK) {
       continue;
     }
-    record(confirmed_policy.authorise_fire(fire_intent(), straight_ahead, status), "a link fault");
+    SimulatedActuatorLink faulty_link{clock};
+    faulty_link.set_status(status);
+    record(confirmed_policy.authorise_fire(fire_intent(), straight_ahead, faulty_link),
+           "a link fault");
   }
 
   // An aim inside the exclusion zone.
@@ -341,30 +381,30 @@ TEST(SafetyPolicyFire, GivesEveryCauseOfRefusalItsOwnReason) {
   zoned.safety.exclusion_zone = exclusion_zone(-10.0, 10.0, 0.0, 20.0);
   SafetyPolicy zoned_policy{zoned, clock};
   record(zoned_policy.authorise_fire(fire_intent(), ServoAngles{.x = Angle{0.0}, .y = Angle{10.0}},
-                                     LinkStatus::OK),
+                                     healthy_link),
          "an aim inside the exclusion zone");
 
   // A burst inside the cool-down.
   SafetyPolicy cooling_policy{calibrated_configuration(), clock};
-  ASSERT_TRUE(cooling_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+  ASSERT_TRUE(cooling_policy.authorise_fire(fire_intent(), straight_ahead, healthy_link)
                   .granted()
                   .has_value());
   cooling_policy.record_fire_sent();
-  record(cooling_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK),
+  record(cooling_policy.authorise_fire(fire_intent(), straight_ahead, healthy_link),
          "a burst inside the cool-down");
 
   // A burst past the engagement rate.
   const Configuration configuration = calibrated_configuration();
   SafetyPolicy rate_limited_policy{configuration, clock};
   for (std::uint32_t burst = 0; burst < configuration.safety.max_engagements_per_minute; ++burst) {
-    ASSERT_TRUE(rate_limited_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+    ASSERT_TRUE(rate_limited_policy.authorise_fire(fire_intent(), straight_ahead, healthy_link)
                     .granted()
                     .has_value())
         << "burst " << burst << " was refused while filling the rate window";
     rate_limited_policy.record_fire_sent();
     clock.advance_by(milliseconds{3000});
   }
-  record(rate_limited_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK),
+  record(rate_limited_policy.authorise_fire(fire_intent(), straight_ahead, healthy_link),
          "a burst past the engagement rate");
 
   // Anti-vacuity: every cause the policy can refuse for must be represented,
@@ -399,13 +439,107 @@ TEST(SafetyPolicyFire, ReportsTheLinkFaultBeforeAnyOtherRefusal) {
     if (status == LinkStatus::OK) {
       continue;
     }
+    SimulatedActuatorLink faulty_link{clock};
+    faulty_link.set_status(status);
     const FireAuthorisation authorisation =
-        unconfigured_policy.authorise_fire(fire_intent(), straight_ahead, status);
+        unconfigured_policy.authorise_fire(fire_intent(), straight_ahead, faulty_link);
 
     EXPECT_FALSE(authorisation.granted().has_value());
     EXPECT_EQ(authorisation.refusal_reason(), *refusal_for(status))
         << "link health is checked before the envelope, so the link fault is the reason reported";
   }
+}
+
+// ---------------------------------------------------------------------------
+// REQ-COM-003 — current link health is queryable without an exchange.
+// ---------------------------------------------------------------------------
+
+// Verifies: REQ-COM-003 — "a fire decision cannot be taken without consulting
+// the link: the decision is given the link itself, and no caller-supplied
+// status can stand in for it."
+//
+// This bullet is a statement about the *shape of the interface*, so a
+// `static_assert` is its honest encoding and a runtime check could not add to
+// it: there is no value one could pass to prove that a different parameter type
+// is absent. The first assertion pins the signature; the second states the
+// bullet directly — a `LinkStatus` cannot be handed to this function, so the
+// caller cannot supply a health nobody observed. Both would fail if an overload
+// taking a bare status were ever reintroduced alongside this one, which is the
+// regression `REQ-COM-003` exists to prevent (ADR-0016).
+static_assert(
+    std::is_same_v<decltype(&SafetyPolicy::authorise_fire),
+                   FireAuthorisation (SafetyPolicy::*)(const TargetTransition&, ServoAngles,
+                                                       const pigeon::core::ActuatorLink&) const>,
+    "authorise_fire must take the ActuatorLink and ask it, not accept a status from its caller "
+    "(REQ-COM-003, REQ-SAF-008, ADR-0016).");
+
+static_assert(!std::is_invocable_v<decltype(&SafetyPolicy::authorise_fire), const SafetyPolicy&,
+                                   const TargetTransition&, ServoAngles, LinkStatus>,
+              "a remembered LinkStatus must not be acceptable in place of the link itself "
+              "(REQ-COM-003).");
+
+// Verifies: REQ-COM-003 — "querying health transmits nothing: a simulated link
+// that counts transmissions records none after any number of queries", and
+// "two queries with no exchange between them return the same status, and
+// neither changes the actuator system's state."
+//
+// The obligation is on every implementation of `ActuatorLink`, firmware
+// included, so it is asserted on the double that stands in for one. An
+// implementation that probed the device to answer — the circularity
+// `REQ-COM-003` exists to forbid — would raise the count.
+TEST(LinkHealthQuery, TransmitsNothingHoweverOftenItIsAsked) {
+  ManualClock clock;
+  SimulatedActuatorLink link{clock};
+  link.set_status(LinkStatus::TRANSPORT_FAILURE);
+
+  int queries = 0;
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    EXPECT_EQ(link.health(), LinkStatus::TRANSPORT_FAILURE)
+        << "two queries with no exchange between them must agree";
+    ++queries;
+    EXPECT_EQ(link.transmissions(), 0) << "a health query put something on the wire";
+  }
+
+  // Anti-vacuity: a loop that never ran would satisfy every assertion above.
+  ASSERT_EQ(queries, 32);
+  EXPECT_TRUE(link.aiming_commands().empty());
+  EXPECT_TRUE(link.fire_commands().empty());
+  EXPECT_EQ(link.safe_state_commands(), 0);
+  EXPECT_FALSE(link.water_active()) << "asking a question must not change the actuator's state";
+}
+
+// Verifies: REQ-COM-003 — "the health used for a fire decision SHALL be
+// obtained from this query at the moment of the decision, and SHALL NOT be a
+// remembered outcome of an earlier exchange".
+//
+// The same policy is asked the same question about the same link twice, with
+// nothing changed but the link's health in between. The answers must differ. A
+// policy that read health once — at construction, or on its first decision, or
+// from anything it cached — would give the same answer twice and fail here.
+// This is what the `static_assert` above cannot reach: the signature forces the
+// link to be *available* at the decision, not that it is *consulted* then.
+TEST(SafetyPolicyFire, ReadsLinkHealthAtTheMomentOfEachDecision) {
+  ManualClock clock;
+  SimulatedActuatorLink link{clock};
+  SafetyPolicy policy{calibrated_configuration(), clock};
+
+  const FireAuthorisation while_healthy =
+      policy.authorise_fire(fire_intent(), straight_ahead, link);
+  ASSERT_TRUE(while_healthy.granted().has_value())
+      << "a healthy link and a confirmed engagement must fire";
+
+  // Nothing is transmitted and nothing is recorded, so the only thing that has
+  // changed between the two decisions is what the link reports about itself.
+  link.set_status(LinkStatus::REJECTED);
+  ASSERT_EQ(link.transmissions(), 0);
+
+  const FireAuthorisation once_degraded =
+      policy.authorise_fire(fire_intent(), straight_ahead, link);
+  EXPECT_FALSE(once_degraded.granted().has_value())
+      << "the policy answered from a health it had remembered, not from the link";
+  EXPECT_EQ(once_degraded.refusal_reason(), *refusal_for(LinkStatus::REJECTED));
+  EXPECT_EQ(link.transmissions(), 0)
+      << "the degraded health was learned by asking, with no command sent to discover it";
 }
 
 // ---------------------------------------------------------------------------
@@ -417,6 +551,7 @@ TEST(SafetyPolicyFire, ReportsTheLinkFaultBeforeAnyOtherRefusal) {
 // inside both intervals produce no fire command".
 TEST(SafetyPolicyFire, RefusesInsideAConfiguredExclusionZone) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   Configuration configuration = calibrated_configuration();
   configuration.safety.exclusion_zone = exclusion_zone(-10.0, 10.0, 0.0, 20.0);
   SafetyPolicy policy{configuration, clock};
@@ -425,7 +560,7 @@ TEST(SafetyPolicyFire, RefusesInsideAConfiguredExclusionZone) {
                                 ServoAngles{.x = Angle{-10.0}, .y = Angle{0.0}},
                                 ServoAngles{.x = Angle{10.0}, .y = Angle{20.0}}}) {
     const FireAuthorisation authorisation =
-        policy.authorise_fire(fire_intent(), aim, LinkStatus::OK);
+        policy.authorise_fire(fire_intent(), aim, healthy_link);
 
     EXPECT_FALSE(authorisation.granted().has_value())
         << "fired at (" << aim.x.degrees << ", " << aim.y.degrees << "), inside the zone";
@@ -437,6 +572,7 @@ TEST(SafetyPolicyFire, RefusesInsideAConfiguredExclusionZone) {
 // firing": a zone is the conjunction of its two axis ranges, not their union.
 TEST(SafetyPolicyFire, PermitsFiringInsideOnlyOneIntervalOfTheZone) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   Configuration configuration = calibrated_configuration();
   configuration.safety.exclusion_zone = exclusion_zone(-10.0, 10.0, 0.0, 20.0);
   SafetyPolicy policy{configuration, clock};
@@ -447,7 +583,7 @@ TEST(SafetyPolicyFire, PermitsFiringInsideOnlyOneIntervalOfTheZone) {
 
   for (const ServoAngles aim : {inside_x_only, inside_y_only, outside_both}) {
     const FireAuthorisation authorisation =
-        policy.authorise_fire(fire_intent(), aim, LinkStatus::OK);
+        policy.authorise_fire(fire_intent(), aim, healthy_link);
 
     EXPECT_TRUE(authorisation.granted().has_value())
         << "refused at (" << aim.x.degrees << ", " << aim.y.degrees
@@ -459,6 +595,7 @@ TEST(SafetyPolicyFire, PermitsFiringInsideOnlyOneIntervalOfTheZone) {
 // firing is permitted anywhere within the mechanical envelope".
 TEST(SafetyPolicyFire, PermitsFiringAnywhereInTheEnvelopeWithNoZoneConfigured) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   const Configuration configuration = calibrated_configuration();
   ASSERT_FALSE(configuration.safety.exclusion_zone.has_value());
   SafetyPolicy policy{configuration, clock};
@@ -468,7 +605,7 @@ TEST(SafetyPolicyFire, PermitsFiringAnywhereInTheEnvelopeWithNoZoneConfigured) {
       const ServoAngles aim{.x = Angle{static_cast<double>(x_degrees)},
                             .y = Angle{static_cast<double>(y_degrees)}};
       const FireAuthorisation authorisation =
-          policy.authorise_fire(fire_intent(), aim, LinkStatus::OK);
+          policy.authorise_fire(fire_intent(), aim, healthy_link);
 
       ASSERT_TRUE(authorisation.granted().has_value())
           << "refused at (" << x_degrees << ", " << y_degrees << ") with no zone configured";
@@ -487,28 +624,29 @@ TEST(SafetyPolicyFire, PermitsFiringAnywhereInTheEnvelopeWithNoZoneConfigured) {
 // elapsed", and "rate limiting is driven by an injected monotonic clock".
 TEST(SafetyPolicyRateLimit, RefusesASecondBurstUntilTheCoolDownHasElapsed) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   SafetyPolicy policy{calibrated_configuration(), clock};
 
-  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, healthy_link)
                   .granted()
                   .has_value());
   policy.record_fire_sent();
 
   const FireAuthorisation immediately =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_FALSE(immediately.granted().has_value());
   EXPECT_EQ(immediately.refusal_reason(), FireRefusal::COOLING_DOWN);
 
   clock.advance_by(milliseconds{1999});
   const FireAuthorisation just_before =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_FALSE(just_before.granted().has_value())
       << "1999 ms is inside the 2 s cool-down";
   EXPECT_EQ(just_before.refusal_reason(), FireRefusal::COOLING_DOWN);
 
   clock.advance_by(milliseconds{2});
   const FireAuthorisation after =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_TRUE(after.granted().has_value()) << "2001 ms is past the 2 s cool-down";
 }
 
@@ -528,12 +666,13 @@ TEST(SafetyPolicyRateLimit, RefusesASecondBurstUntilTheCoolDownHasElapsed) {
 // exercising some other instant.
 TEST(SafetyPolicyRateLimit, PermitsABurstAtExactlyTheCoolDownDuration) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   const Configuration configuration = calibrated_configuration();
   const milliseconds cool_down = configuration.safety.cool_down;
   SafetyPolicy policy{configuration, clock};
 
   const milliseconds fired_at = clock.now().since_epoch;
-  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, healthy_link)
                   .granted()
                   .has_value());
   policy.record_fire_sent();
@@ -542,7 +681,7 @@ TEST(SafetyPolicyRateLimit, PermitsABurstAtExactlyTheCoolDownDuration) {
   ASSERT_EQ(clock.now().since_epoch - fired_at, cool_down - milliseconds{1})
       << "the clock must sit one millisecond short of the boundary";
   const FireAuthorisation one_millisecond_early =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_FALSE(one_millisecond_early.granted().has_value())
       << "at cool-down minus 1 ms the period has not elapsed";
   EXPECT_EQ(one_millisecond_early.refusal_reason(), FireRefusal::COOLING_DOWN);
@@ -551,7 +690,7 @@ TEST(SafetyPolicyRateLimit, PermitsABurstAtExactlyTheCoolDownDuration) {
   ASSERT_EQ(clock.now().since_epoch - fired_at, cool_down)
       << "the clock must now read exactly the cool-down boundary";
   const FireAuthorisation exactly_on_the_boundary =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_TRUE(exactly_on_the_boundary.granted().has_value())
       << "elapsed >= duration: exactly the cool-down duration later is permitted";
 }
@@ -561,20 +700,21 @@ TEST(SafetyPolicyRateLimit, PermitsABurstAtExactlyTheCoolDownDuration) {
 // commands per minute", and the window is a sliding one on the injected clock.
 TEST(SafetyPolicyRateLimit, AllowsNoMoreThanTheConfiguredEngagementsPerMinute) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   const Configuration configuration = calibrated_configuration();
   SafetyPolicy policy{configuration, clock};
 
   // Six bursts, each well past the cool-down, all inside one minute.
   for (std::uint32_t burst = 0; burst < configuration.safety.max_engagements_per_minute; ++burst) {
     const FireAuthorisation authorisation =
-        policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+        policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
     ASSERT_TRUE(authorisation.granted().has_value()) << "burst " << burst << " was refused";
     policy.record_fire_sent();
     clock.advance_by(milliseconds{3000});
   }
 
   const FireAuthorisation seventh =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_FALSE(seventh.granted().has_value())
       << "a seventh burst inside the same minute must be refused";
   EXPECT_EQ(seventh.refusal_reason(), FireRefusal::RATE_LIMIT_REACHED);
@@ -582,7 +722,7 @@ TEST(SafetyPolicyRateLimit, AllowsNoMoreThanTheConfiguredEngagementsPerMinute) {
   // Far enough on that the earliest burst has left the one-minute window.
   clock.advance_by(milliseconds{45001});
   const FireAuthorisation later =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_TRUE(later.granted().has_value())
       << "the rate window slides: bursts older than a minute no longer count";
 }
@@ -602,12 +742,13 @@ TEST(SafetyPolicyRateLimit, AllowsNoMoreThanTheConfiguredEngagementsPerMinute) {
 TEST(SafetyPolicyRateLimit, ABurstExactlyOneMinuteOldHasLeftTheRateWindow) {
   constexpr milliseconds rate_window{60000};
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   const Configuration configuration = calibrated_configuration();
   SafetyPolicy policy{configuration, clock};
 
   const milliseconds oldest_burst_at = clock.now().since_epoch;
   for (std::uint32_t burst = 0; burst < configuration.safety.max_engagements_per_minute; ++burst) {
-    ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+    ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, healthy_link)
                     .granted()
                     .has_value())
         << "burst " << burst << " was refused while setting the window up";
@@ -623,7 +764,7 @@ TEST(SafetyPolicyRateLimit, ABurstExactlyOneMinuteOldHasLeftTheRateWindow) {
   ASSERT_EQ(clock.now().since_epoch - oldest_burst_at, rate_window - milliseconds{1})
       << "the oldest burst must be one millisecond short of a minute old";
   const FireAuthorisation still_full =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_FALSE(still_full.granted().has_value())
       << "at 59 999 ms the oldest burst is still inside the window and the rate is full";
   EXPECT_EQ(still_full.refusal_reason(), FireRefusal::RATE_LIMIT_REACHED)
@@ -634,7 +775,7 @@ TEST(SafetyPolicyRateLimit, ABurstExactlyOneMinuteOldHasLeftTheRateWindow) {
   ASSERT_EQ(clock.now().since_epoch - oldest_burst_at, rate_window)
       << "the oldest burst must now be exactly one minute old";
   const FireAuthorisation window_rolled =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_TRUE(window_rolled.granted().has_value())
       << "the window is half-open: a burst exactly one minute old no longer counts";
 }
@@ -644,12 +785,13 @@ TEST(SafetyPolicyRateLimit, ABurstExactlyOneMinuteOldHasLeftTheRateWindow) {
 // consecutive authorisations with nothing sent in between are both granted.
 TEST(SafetyPolicyRateLimit, AuthorisingDoesNotItselfStartTheCoolDown) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   SafetyPolicy policy{calibrated_configuration(), clock};
 
   const FireAuthorisation first =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   const FireAuthorisation second =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
 
   EXPECT_TRUE(first.granted().has_value());
   EXPECT_TRUE(second.granted().has_value())
@@ -661,9 +803,10 @@ TEST(SafetyPolicyRateLimit, AuthorisingDoesNotItselfStartTheCoolDown) {
 // whatever came back (ADR-0011).
 TEST(SafetyPolicyRateLimit, ATransmittedButRejectedBurstStillStartsTheCoolDown) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   SafetyPolicy policy{calibrated_configuration(), clock};
 
-  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, healthy_link)
                   .granted()
                   .has_value());
   // The caller transmitted the command and the device rejected it; the caller
@@ -671,7 +814,7 @@ TEST(SafetyPolicyRateLimit, ATransmittedButRejectedBurstStillStartsTheCoolDown) 
   policy.record_fire_sent();
 
   const FireAuthorisation next =
-      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
   EXPECT_FALSE(next.granted().has_value());
   EXPECT_EQ(next.refusal_reason(), FireRefusal::COOLING_DOWN);
 }
@@ -681,19 +824,20 @@ TEST(SafetyPolicyRateLimit, ATransmittedButRejectedBurstStillStartsTheCoolDown) 
 // engagement".
 TEST(SafetyPolicyRateLimit, ABurstRefusedBeforeTransmissionStartsNoCoolDown) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   Configuration configuration = calibrated_configuration();
   configuration.safety.exclusion_zone = exclusion_zone(-10.0, 10.0, 0.0, 20.0);
   SafetyPolicy policy{configuration, clock};
 
   const ServoAngles inside_zone{.x = Angle{0.0}, .y = Angle{10.0}};
   const FireAuthorisation refused =
-      policy.authorise_fire(fire_intent(), inside_zone, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), inside_zone, healthy_link);
   ASSERT_FALSE(refused.granted().has_value());
   ASSERT_EQ(refused.refusal_reason(), FireRefusal::EXCLUSION_ZONE);
 
   const ServoAngles outside_zone{.x = Angle{60.0}, .y = Angle{35.0}};
   const FireAuthorisation next =
-      policy.authorise_fire(fire_intent(), outside_zone, LinkStatus::OK);
+      policy.authorise_fire(fire_intent(), outside_zone, healthy_link);
   EXPECT_TRUE(next.granted().has_value())
       << "a burst that never left the Raspberry Pi must not consume an engagement";
 }
@@ -703,16 +847,17 @@ TEST(SafetyPolicyRateLimit, ABurstRefusedBeforeTransmissionStartsNoCoolDown) {
 // times it is asked.
 TEST(SafetyPolicyRateLimit, ReadsTimeOnlyThroughTheInjectedClock) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   SafetyPolicy policy{calibrated_configuration(), clock};
 
-  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, healthy_link)
                   .granted()
                   .has_value());
   policy.record_fire_sent();
 
   for (int attempt = 0; attempt < 50; ++attempt) {
     const FireAuthorisation authorisation =
-        policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+        policy.authorise_fire(fire_intent(), straight_ahead, healthy_link);
     ASSERT_FALSE(authorisation.granted().has_value())
         << "attempt " << attempt << ": time passed without the clock moving";
     ASSERT_EQ(authorisation.refusal_reason(), FireRefusal::COOLING_DOWN);
@@ -752,6 +897,7 @@ TEST(SafetyPolicyAim, CommandsNothingWhenTheEnvelopeIsEmpty) {
 // may track a bird it is forbidden to spray.
 TEST(SafetyPolicyAim, IsNotGatedByTheExclusionZoneOrTheCoolDown) {
   ManualClock clock;
+  SimulatedActuatorLink healthy_link{clock};
   Configuration configuration = calibrated_configuration();
   configuration.safety.exclusion_zone = exclusion_zone(-10.0, 10.0, 0.0, 20.0);
   SafetyPolicy policy{configuration, clock};
@@ -760,7 +906,7 @@ TEST(SafetyPolicyAim, IsNotGatedByTheExclusionZoneOrTheCoolDown) {
   EXPECT_TRUE(policy.authorise_aim(inside_zone).has_value());
 
   ASSERT_TRUE(policy.authorise_fire(fire_intent(), ServoAngles{.x = Angle{60.0}, .y = Angle{35.0}},
-                                    LinkStatus::OK)
+                                    healthy_link)
                   .granted()
                   .has_value());
   policy.record_fire_sent();
