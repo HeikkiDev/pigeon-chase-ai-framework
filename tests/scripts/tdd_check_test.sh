@@ -107,6 +107,28 @@ commit_in "$history" 'test(core): specify something' '' 'tests/core/counter_test
 expect_exit 'rejects a core/ or tests/ commit with no Refs trailer' 1 \
   "$TDD_CHECK" --root "$history" --range 'main~1..main'
 
+# A trailer listing many requirements does not fit on one line, and git folds
+# continuation lines by indenting them. A suite covering thirty requirements has
+# a legitimate reason to wrap, so refusing the folded form would reject correct
+# work and push authors towards citing fewer requirements than they verified.
+history="$(new_history)"
+commit_in "$history" 'test(core): specify something' \
+  'Refs: REQ-EXA-001, REQ-EXA-002,
+ REQ-EXA-003, REQ-EXA-004' \
+  'tests/core/counter_test.cpp'
+expect_exit 'accepts a Refs trailer folded across continuation lines' 0 \
+  "$TDD_CHECK" --root "$history" --range 'main~1..main'
+
+# Folding must not become a way to smuggle anything past the check: only an
+# indented continuation of the list counts, not an arbitrary following line.
+history="$(new_history)"
+commit_in "$history" 'test(core): specify something' \
+  'Refs: REQ-EXA-001,
+not a requirement at all' \
+  'tests/core/counter_test.cpp'
+expect_exit 'rejects a folded Refs trailer whose continuation is not a requirement' 1 \
+  "$TDD_CHECK" --root "$history" --range 'main~1..main'
+
 history="$(new_history)"
 commit_in "$history" 'test(core): specify something' 'Refs: REQ-EXA-001, REQ-EXA-002' \
   'tests/core/counter_test.cpp'
