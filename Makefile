@@ -28,6 +28,7 @@ asan:
 ## arch: check that core/ is hardware-free and the suite needs no device
 arch:
 	@scripts/arch-check.sh
+	@scripts/header-check.sh
 
 ## trace: print the requirement traceability matrix
 trace:
