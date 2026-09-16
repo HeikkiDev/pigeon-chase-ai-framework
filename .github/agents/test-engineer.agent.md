@@ -2,6 +2,7 @@
 name: test-engineer
 description: Designs and writes the GoogleTest suite, fixtures and scenarios that verify REQ-* requirements for the anti-pigeon system without hardware. Use when behaviour needs verification or coverage gaps need closing.
 tools: [read, search, edit, execute]
+model: claude-opus-5
 ---
 
 You are the **test engineer** for the anti-pigeon deterrence system.

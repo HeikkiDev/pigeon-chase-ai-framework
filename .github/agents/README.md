@@ -18,6 +18,30 @@ Listed in workflow order.
 | `implementation-engineer` | Code behind existing interfaces, simulated hardware        | Edit the executable specification, or change requirements or interfaces silently |
 | `code-reviewer`           | Independent verification against requirements and safety   | Edit files, or approve without running the gate      |
 
+## Models
+
+Each role declares its model in the `model:` field of its `.agent.md`
+frontmatter, so the choice travels with the repository instead of living in
+whoever happened to dispatch the agent.
+
+| Agent                     | Model             | Why                                                                     |
+| ------------------------- | ----------------- | ----------------------------------------------------------------------- |
+| `architect`               | `claude-opus-5`   | Decides what the system must do. Escalating an ambiguity instead of inventing an answer is the behaviour being bought. |
+| `test-engineer`           | `claude-opus-5`   | Writes the executable specification. A test that passes vacuously is worse than no test, and spotting that needs judgement. |
+| `implementation-engineer` | `claude-opus-5`   | Safety-critical state machine under an exhaustive suite.                |
+| `code-reviewer`           | `claude-sonnet-5` | Verifies against explicit `REQ-*` criteria and a gate that returns an exit code. The bar is thoroughness, not invention. |
+
+These are defaults for the role, not for every task. A dispatcher may override
+the model for a **mechanical** run — replaying a recipe, a large rename, a
+verification pass whose judgement already lives in the prompt — and should,
+because those are most of the cheap wins.
+
+Never downgrade the model for work that must not guess: anything touching a
+`REQ-SAF-*` requirement, the device protocol, or a question the maintainer has
+not ruled on. A weaker model guesses where a stronger one escalates, and this
+repository exists to make guessing visible. The saving is not worth a
+fabricated requirement.
+
 ## Acceptance-test-first (ATDD)
 
 Tests are written **before** the behaviour they verify, and by a different
