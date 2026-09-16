@@ -134,8 +134,21 @@ while IFS= read -r sha; do
   type="${subject%%[(:]*}"
 
   # 2. Requirement references for anything touching the product or its spec.
+  #
+  # The trailer is unfolded first. Git folds a long trailer by indenting its
+  # continuation lines, and a suite verifying thirty requirements has an honest
+  # reason to wrap; rejecting the folded form would reject correct work and
+  # quietly pressure authors into citing fewer requirements than they covered.
+  # Only indented continuations are joined, so an ordinary following line still
+  # terminates the trailer and cannot smuggle anything past the pattern.
   if [[ "$touches_tests" == "1" || "$touches_core" == "1" ]]; then
-    if ! printf '%s\n' "$body" | grep -qE "$REFS"; then
+    unfolded="$(printf '%s\n' "$body" | awk '
+      /^Refs:/            { if (pending != "") print pending; pending = $0; next }
+      /^[[:space:]]+[^[:space:]]/ { if (pending != "") { line = $0; sub(/^[[:space:]]+/, " ", line); pending = pending line; next } }
+                          { if (pending != "") { print pending; pending = "" } }
+      END                 { if (pending != "") print pending }
+    ')"
+    if ! printf '%s\n' "$unfolded" | grep -qE "$REFS"; then
       report "$short: touches core/ or tests/ but has no 'Refs: REQ-...' or 'Refs: infrastructure' trailer"
     fi
   fi
