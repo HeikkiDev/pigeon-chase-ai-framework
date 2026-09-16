@@ -189,7 +189,7 @@ expect_exit "permits a superseded requirement to drop out of the verified set" 0
 # The baseline must be updatable, or it becomes impossible to add coverage.
 sandbox="$(new_sandbox)"
 expect_exit "--update-baseline records the currently verified requirements" 0 \
-  "$TRACE" --root "$sandbox" --update-baseline
+  "$TRACE" --root "$sandbox" --update-baseline --tests-passed
 
 if [[ -f "$sandbox/docs/requirements/verified.txt" ]] \
    && grep -qx 'REQ-EXA-001' "$sandbox/docs/requirements/verified.txt"; then
@@ -197,6 +197,52 @@ if [[ -f "$sandbox/docs/requirements/verified.txt" ]] \
 else
   _bad "the updated baseline does not contain the verified requirement"
 fi
+
+# ------------------------------------------- citing a test is not proving it --
+#
+# A test file that names a requirement proves nothing until it PASSES. Deriving
+# the verified set from the source text alone would let a suite that does not
+# even link claim coverage, which is precisely the unearned claim this gate
+# exists to prevent. The caller must therefore assert that the tests passed;
+# scripts/check.sh does so only after ctest has succeeded.
+sandbox="$(new_sandbox)"
+expect_output_contains "without --tests-passed the matrix says cited, not verified" \
+  'cited by tests' "$TRACE" --root "$sandbox"
+expect_output_not_contains "does not claim verification it has not witnessed" \
+  'verified by tests' "$TRACE" --root "$sandbox"
+expect_output_contains "says how verification is actually witnessed" \
+  'check.sh' "$TRACE" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+expect_output_contains "with --tests-passed the matrix says verified" \
+  'verified by tests' "$TRACE" --root "$sandbox" --tests-passed
+
+# The ratchet is the record of proven claims, so it may only ever be written
+# from a green run. Otherwise a red suite could bake in coverage it never had.
+sandbox="$(new_sandbox)"
+expect_exit "refuses to update the baseline without evidence the tests passed" 1 \
+  "$TRACE" --root "$sandbox" --update-baseline
+expect_output_contains "explains why the baseline was not updated" \
+  'tests passed' "$TRACE" --root "$sandbox" --update-baseline
+
+sandbox="$(new_sandbox)"
+"$TRACE" --root "$sandbox" --update-baseline > /dev/null 2>&1
+if [[ -s "$sandbox/docs/requirements/verified.txt" ]] \
+   && grep -qx 'REQ-EXA-001' "$sandbox/docs/requirements/verified.txt"; then
+  _bad "a refused --update-baseline still wrote the baseline"
+else
+  _ok "a refused --update-baseline leaves the baseline untouched"
+fi
+
+# A coverage regression is a retracted claim and stays fatal either way: the
+# requirement was proven once, and nothing has proven it since.
+sandbox="$(new_sandbox)"
+verified_baseline "$sandbox" <<'EOF'
+REQ-EXA-001
+EOF
+rm "$sandbox/tests/core/example_test.cpp"
+expect_exit "a coverage regression is fatal even without --tests-passed" 1 \
+  "$TRACE" --root "$sandbox"
 
 # ------------------------------------------------------------- --report never fails --
 sandbox="$(new_sandbox)"
