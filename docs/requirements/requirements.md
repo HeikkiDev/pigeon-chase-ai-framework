@@ -484,6 +484,10 @@ key/value format needs no third-party parser, which matters on a 1 GB target.
 
 * Encoding and decoding are covered by tests that use no serial device.
 * Malformed input is rejected without undefined behaviour.
+* The protocol lets the commanding side keep its picture of link health current
+  without sending a fire command: every command is answered by a reply that
+  distinguishes acceptance from refusal, and the device emits a periodic
+  heartbeat so that silence is detectable as a fault (`REQ-COM-003`).
 
 **Blocked on work not yet done.** The protocol has not been designed. `core/`
 deliberately models the device boundary as *operations* — `ActuatorLink` — and
@@ -505,6 +509,60 @@ to `SEARCHING`.
 
 * With a simulated link that fails after locking, no fire command is emitted and
   the final state is `SEARCHING`.
+* A link that has become unavailable is refused on the strength of its reported
+  health alone, with no command sent to discover the fault (`REQ-COM-003`).
+
+### REQ-COM-003 — Current link health is queryable without an exchange
+
+**Statement:** The actuator link SHALL report its current health on demand, as
+one of the same set of link statuses its commands return, at any time and
+before any command has been sent. The query SHALL NOT require an exchange with
+the actuator system, SHALL NOT block, and SHALL NOT change the state of either
+device. The health used for a fire decision SHALL be obtained from this query
+at the moment of the decision, and SHALL NOT be a remembered outcome of an
+earlier exchange supplied by the caller.
+
+**Rationale:** `REQ-SAF-008` requires a distinct refusal for every link status
+that is not `OK`, but the boundary as first designed could not deliver one. The
+only pre-send query was a boolean, so a caller deciding whether to fire could
+construct `OK` or unavailable and nothing else; a transport failure or a
+rejection only ever existed as the *return value of an exchange that had already
+happened*. The rule was therefore correct and unreachable: two of its four cases
+could not occur in any real composition of the interfaces. Found by the
+test-engineer, which could only reach those branches through a seam it invented
+inside its own fixtures, and flagged that honestly rather than presenting it as
+coverage.
+
+The query must not itself require an exchange, or the circularity returns: you
+would have to talk to the device to learn whether you may talk to the device.
+It is answered from what the commanding side already knows — whether its
+transport is open, whether its last exchange faulted, whether the device has
+answered its heartbeat within the expected interval (`REQ-COM-001`).
+
+Firmware satisfies this without ever being asked: it replies to every command
+distinguishing acceptance from refusal, and emits a periodic heartbeat, so the
+host's picture stays current without a fire command being sent to refresh it. No
+new device-side operation is required.
+
+Deriving the status from a caller-held memory of the last exchange was
+considered and rejected: remembered state that nothing forces the caller to
+refresh is exactly the obligation an implementer forgets, and a safety rule
+resting on bookkeeping nobody checks is not a safety rule (ADR-0016).
+
+**Acceptance:**
+
+* Each link status is obtainable from a simulated link before any command has
+  been sent, and each reaches the fire decision and produces its own refusal
+  (`REQ-SAF-008`).
+* Querying health transmits nothing: a simulated link that counts transmissions
+  records none after any number of queries.
+* A link whose health degrades between the aiming frame and the firing frame
+  refuses the burst on the strength of the query alone, with no intervening
+  command.
+* A fire decision cannot be taken without consulting the link: the decision is
+  given the link itself, and no caller-supplied status can stand in for it.
+* Two queries with no exchange between them return the same status, and neither
+  changes the actuator system's state.
 
 ---
 
@@ -612,10 +670,28 @@ retrofitting it later costs a redesign.
 **Statement:** On startup and on shutdown the actuator system SHALL be placed in
 a state in which the water actuator is inactive.
 
+The inertness of an **uncalibrated** rig SHALL rest on the empty default
+envelope alone (`REQ-AIM-002`): no other stage of the pipeline is required to
+fail for safety to hold. An uncalibrated rig MAY detect, associate, confirm and
+reach `TARGET_LOCKED`; it commands no motion and no water because there is no
+envelope to command within.
+
+**Rationale:** The default association radius is zero, which for a camera means
+nothing associates and nothing is ever confirmed. That is a consequence, not a
+guarantee: the radius is inclusive (`REQ-TRK-007`), so a source that reproduces
+a centroid exactly — every simulated detector, and any future replay of
+recorded detections — does associate at zero radius and does reach
+`TARGET_LOCKED`. Stating where the safety actually lives stops anyone reading
+the quiet tracker as a second line of defence and building on it. Found by the
+test-engineer while asserting the inclusive radius.
+
 **Acceptance:**
 
 * The simulated actuator reports inactive immediately after construction and
   after shutdown.
+* A default-constructed configuration driven by a detector that reproduces a
+  centroid exactly may reach `TARGET_LOCKED`, and still produces no aiming
+  command and no fire command.
 
 ### REQ-SAF-006 — Exclusion zone geometry
 
@@ -668,7 +744,9 @@ those two costs decides it. Recorded in ADR-0011.
 **Statement:** The system SHALL issue a fire command only while the actuator
 link reports `OK`. Every other link status SHALL refuse the burst, and each
 status SHALL produce its **own** refusal reason, distinct from the reason
-produced by any other status and from every other cause of refusal.
+produced by any other status and from every other cause of refusal. The status
+tested SHALL be the link's current health, queried at the moment of the
+decision (`REQ-COM-003`), and every status SHALL be reachable at that moment.
 
 **Rationale:** A link that is not known to be healthy is not a link to send
 water over. `REQ-COM-002` already says what to do when the link becomes
@@ -693,6 +771,12 @@ status added later cannot quietly inherit another's reason (ADR-0015).
   statuses share a reason.
 * Every `LinkStatus` value is either `OK` or has a refusal reason: no status
   is unhandled.
+* Every status is **reachable** at the fire decision: for each one there is a
+  simulated link reporting it, before any command is sent, that produces that
+  status's refusal. No status is refused only in principle (`REQ-COM-003`).
+* The decision consults the link rather than accepting a status from its
+  caller, so an engagement cannot be authorised against a health nobody
+  observed.
 
 ---
 
@@ -819,3 +903,6 @@ may already have built against.
 | #  | Defect                                                                                                                                                                                                                                 | Repair                                                                                                                                                                                                                                              |
 | -- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | C1 | `REQ-TRK-007`'s acceptance bullet "two detections in successive frames beyond the association radius produce two tracks, each with a count of one" cannot hold under `REQ-TRK-009`: if the detections are in successive frames, the first track is discarded the moment it goes undetected, so the two tracks never coexist. Found by the test-engineer, who could not encode it. | Reworded as a statement about successive frames that is true under immediate discard: a detection beyond the radius from every existing track starts a new track with a count of one, while the track it failed to match is discarded. No same-frame bullet was added; the requirement is about association across frames. |
+| D1 | `REQ-SAF-008` mandates a distinct refusal for every link status that is not `OK`, but two of the four were unreachable: the only pre-send query on the device boundary was a boolean, so a caller deciding whether to fire could express `OK` or unavailable and nothing else. A transport failure or a rejection existed only as the return value of an exchange already made — and the exchange before any fire decision is the aiming command, whose failure abandons the engagement (`REQ-COM-002`) and resets the count (`REQ-TRK-012`), so no fire frame follows it. The rule was correct and dead. Found by the test-engineer, which could reach those branches only through a seam it invented in its own fixtures and flagged as such. | The device boundary was widened rather than the rule narrowed: `REQ-COM-003` requires current health to be queryable, without an exchange, with the full set of statuses, and `REQ-SAF-008` now requires the decision to consult the link rather than accept a status from its caller (ADR-0016). |
+| D2 | `track.hpp` claimed that a zero association radius "matches nothing but a detection exactly on a track's centroid, which no real detector produces twice". True of a camera, false of every simulated detector, and under `REQ-TRK-007`'s inclusive radius an uncalibrated rig can therefore associate, confirm and reach `TARGET_LOCKED`. Safety held — the empty envelope commands nothing — but the stated reason for it did not. Found by the test-engineer while asserting the inclusive radius. | The header's claim was corrected, and `REQ-SAF-004` now states where the inertness of an uncalibrated rig actually lives: the empty default envelope alone, with no reliance on the tracker staying quiet. |
+| D3 | ADR-0015 closes the `LinkStatus` extension gap with a `switch` that has no `default:` label, relying on `-Wswitch` under `-Werror`. Nothing enforces the absence of that label, so a future `default:` reopens the gap silently. Found by the test-engineer, which correctly identified `scripts/arch-check.sh` as where the check belongs and correctly declined to write it. | **Outstanding.** Referred to the maintainer, who owns `scripts/`, to be added test-first. The architect's requested rejection rule is recorded in the hand-over report; no requirement text changes, because the rule is an enforcement mechanism for `REQ-SAF-008`, not a new obligation. |

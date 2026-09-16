@@ -108,10 +108,18 @@ struct TrackUpdate {
 ///   counter reset of `REQ-TRK-003` is realised (`REQ-TRK-009`). A `NONE`
 ///   frame therefore empties the track set entirely.
 ///
-/// A zero `association_radius` matches nothing but a detection exactly on a
-/// track's centroid, which no real detector produces twice, so the default of
-/// an uncalibrated configuration starts a new track for every detection and
-/// confirms nothing. That is the inert behaviour `REQ-SAF-004` asks for.
+/// A zero `association_radius` — the default of an uncalibrated configuration —
+/// matches only a detection whose centroid coincides with a track's exactly,
+/// the radius being inclusive (`REQ-TRK-007`). A camera never obliges twice,
+/// so a real uncalibrated rig confirms nothing. **A simulated detector
+/// obliges every time**, so an uncalibrated rig driven by one does associate,
+/// does confirm, and does reach `TARGET_LOCKED`.
+///
+/// That is not a safety problem and must not be read as one: an uncalibrated
+/// rig is inert because its mechanical envelope is empty, so it is commanded
+/// no motion and no water whatever the tracker concludes (`REQ-SAF-004`,
+/// `REQ-AIM-002`). The quiet tracker is a side effect of an uncalibrated
+/// camera, not a second line of defence, and nothing may be built on it.
 ///
 /// There is no track-retention or track-decay parameter, and adding one would
 /// change no confirmation outcome: a retained track with a zeroed count

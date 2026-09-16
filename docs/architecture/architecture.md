@@ -170,7 +170,7 @@ hardware-shaped ones are interfaces with simulated implementations (ADR-0001).
 | `aiming.hpp`              | The boresighted transform, `Angle`/`ServoAngles`, and the empty-by-default `AngleRange` and envelope.  | `REQ-AIM-001`, `REQ-AIM-002`                   |
 | `configuration.hpp`       | `Configuration`: a plain value type, parsed in `raspberry/`, inert by default. Carries at most one exclusion zone. | `REQ-AIM-003`, `REQ-SAF-001`, `REQ-SAF-003`, `REQ-SAF-005`, `REQ-SAF-006` |
 | `clock.hpp`               | `MonotonicClock`: the only way `core/` can learn the time.                                            | `REQ-SAF-005`, `REQ-DEV-002`                     |
-| `actuator_link.hpp`       | `ActuatorLink`: the device boundary, with failure as a returned `LinkStatus`.                         | `REQ-COM-001`, `REQ-COM-002`, `REQ-SAF-004`      |
+| `actuator_link.hpp`       | `ActuatorLink`: the device boundary, with failure as a returned `LinkStatus` and current health queryable without an exchange. | `REQ-COM-001`, `REQ-COM-002`, `REQ-COM-003`, `REQ-SAF-004` |
 | `safety_policy.hpp`       | `SafetyPolicy`: link health, clamp, exclusion zone, cool-down, rate limit, bounded burst. Every transmitted command counts. | `REQ-SAF-001`…`REQ-SAF-008`, `REQ-AIM-002`       |
 
 The pipeline reads as a chain of values, with state carried by the caller:
@@ -213,6 +213,13 @@ Three properties of this shape matter more than its details:
   other status refuses with its own `FireRefusal`, mapped in one place by
   `refusal_for`, so a status added later cannot inherit a permission nobody
   granted it (`REQ-SAF-008`, ADR-0015).
+* **Health is asked for, not told.** `authorise_fire` takes the
+  `ActuatorLink` and calls `health()` itself, so no caller can supply a status
+  nobody observed, present the outcome of an earlier exchange as the current
+  condition, or forget to check. `health()` answers without transmitting
+  anything, so learning whether you may talk to the device does not require
+  talking to it (`REQ-COM-003`, ADR-0016). One residual hole is documented on
+  the interface: nothing binds the link consulted to the link commanded.
 * **Boundaries are stated, not guessed.** The association radius is inclusive
   (`REQ-TRK-007`), and every duration in `core/` uses one convention: a period
   has elapsed at `elapsed >= duration`, and windows are half-open, so a burst
@@ -224,7 +231,14 @@ Three properties of this shape matter more than its details:
   a caller has to hand to the next frame is the one the machine gave back, with
   the retirement already applied (ADR-0013).
 
-`ActuatorLink` is the *operation-level* half of the device boundary. Its wire
+`ActuatorLink` is the *operation-level* half of the device boundary. It carries
+two kinds of question: what happened to a command (`send_*`) and how the link is
+now (`health()`). Both answer with `LinkStatus`, because they have the same four
+answers, and a second enumeration would be a second source of truth. `health()`
+is answered entirely on the commanding side; the firmware keeps that picture
+current by replying to every command and emitting a periodic heartbeat, so a
+fault is visible without a fire command being sent to discover it
+(`REQ-COM-003`). Its wire
 encoding — framing, checksums, replies — is still to be specified in this
 directory (`REQ-COM-001`), and the interface deliberately says nothing about
 it. Because no seam in `core/` represents the encoding, `REQ-COM-001` has

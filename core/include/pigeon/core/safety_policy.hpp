@@ -53,6 +53,11 @@ enum class FireRefusal : std::uint8_t {
 /// every other status yields its own reason, shared with no other status, so a
 /// refusal in a log names the thing that went wrong.
 ///
+/// Every one of these reasons is reachable at a fire decision, because
+/// `ActuatorLink::health()` can report any status before a command is sent
+/// (`REQ-COM-003`, ADR-0016). They were not always: when the only pre-send
+/// query was a boolean, two of them could not occur.
+///
 /// **Its definition is a `switch` over `LinkStatus` with no `default:`
 /// label.** That is what keeps this gap closed: `-Wswitch` under the project's
 /// `-Werror` refuses to compile a `LinkStatus` enumerator that has been given
@@ -125,7 +130,7 @@ class FireAuthorisation {
 /// | Exclusion zone                        | `REQ-SAF-003` |
 /// | Cool-down and engagement rate         | `REQ-SAF-005`, `REQ-SAF-007` |
 /// | Bounded burst duration                | `REQ-SAF-001` |
-/// | Only a healthy link may fire          | `REQ-SAF-008` |
+/// | Only a healthy link may fire          | `REQ-SAF-008`, `REQ-COM-003` |
 /// | Link failure abandons the engagement  | `REQ-COM-002` |
 ///
 /// Time is read only through the injected `MonotonicClock`, never from the
@@ -176,10 +181,31 @@ class SafetyPolicy {
   /// (`REQ-SAF-005`). A granted authorisation carries the clamped aim and a
   /// duration bounded by `SafetyLimits::max_fire_duration` (`REQ-SAF-001`).
   ///
-  /// `link_status` grants only when it is `LinkStatus::OK`. Every other status
-  /// refuses with `*refusal_for(link_status)` — its own reason, never shared
-  /// with another status (`REQ-SAF-008`, ADR-0015). A link that is not known to
-  /// be healthy is not a link to send water over.
+  /// **Link health is read here, from `link`, at the instant of the decision**
+  /// (`REQ-COM-003`, ADR-0016). It grants only when `link.health()` is
+  /// `LinkStatus::OK`; every other status refuses with its own reason, never
+  /// shared with another status (`REQ-SAF-008`, ADR-0015). A link that is not
+  /// known to be healthy is not a link to send water over.
+  ///
+  /// Taking the link rather than a status is what makes that rule real. A
+  /// caller cannot supply a health nobody observed, cannot present a
+  /// remembered outcome of an earlier exchange as the current condition, and
+  /// cannot forget to ask — there is no parameter to leave out and no
+  /// bookkeeping to keep. It is the same move as putting the track set inside
+  /// `TargetMachineState`: the obligation is discharged by the only code that
+  /// can see whether it was.
+  ///
+  /// It is not airtight, and the hole is worth naming: nothing binds the link
+  /// consulted here to the link the caller then commands. A caller holding two
+  /// links could ask one and send over the other. Closing that would mean
+  /// folding transmission into this class, which would merge the guard with
+  /// the actuator, make this query non-`const`, and dissolve the separation
+  /// that lets `record_fire_sent` count transmissions rather than permissions
+  /// (ADR-0016). A rig has one link.
+  ///
+  /// `link` is observed for the duration of the call and not retained, so the
+  /// answer cannot be stale: a token fetched earlier and passed in later would
+  /// be exactly the remembered state this signature exists to prevent.
   ///
   /// The cool-down and rate checks use the elapsed-time convention documented
   /// on this class: a burst is permitted at exactly the cool-down duration
@@ -198,7 +224,7 @@ class SafetyPolicy {
   /// cooling-down rig does not re-aim at the same bird on every frame.
   [[nodiscard]] FireAuthorisation authorise_fire(const TargetTransition& transition,
                                                  ServoAngles requested_aim,
-                                                 LinkStatus link_status) const;
+                                                 const ActuatorLink& link) const;
 
   /// Record that a fire command was **transmitted** to the actuator link,
   /// starting the cool-down and counting against the engagement rate

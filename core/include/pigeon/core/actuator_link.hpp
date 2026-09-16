@@ -33,7 +33,14 @@ struct FireCommand {
   std::chrono::milliseconds duration{0};
 };
 
-/// The outcome of one attempt to talk to the actuator system.
+/// The condition of the link to the actuator system.
+///
+/// One enumeration serves two questions, because they have the same four
+/// answers: what happened to the command just sent (`send_*`), and how the
+/// link is right now (`health()`). A second enumeration for the second
+/// question would be a second source of truth about one thing, and would need
+/// its own mapping to refusals; these values already name every condition that
+/// matters (`REQ-COM-003`).
 ///
 /// An explicit error value rather than an exception: this is a module
 /// boundary, and `REQ-COM-002` requires the caller to *act* on a failure —
@@ -49,16 +56,24 @@ struct FireCommand {
 /// transmitted counts towards the cool-down and the rate limit whatever the
 /// status says afterwards (`REQ-SAF-007`, ADR-0011).
 enum class LinkStatus : std::uint8_t {
-  /// The command was transmitted and accepted.
+  /// As an outcome: the command was transmitted and accepted. As health: the
+  /// link is open and nothing is known to be wrong with it. The only value
+  /// that permits a burst (`REQ-SAF-008`).
   OK,
-  /// The link is not open, or has been lost (`REQ-COM-002`).
+  /// The link is not open, or has been lost (`REQ-COM-002`). As health: the
+  /// transport is closed, or the device has not been heard from within the
+  /// expected heartbeat interval.
   UNAVAILABLE,
   /// The link is open but the exchange failed: a write error, a framing
-  /// error, a malformed or absent reply (`REQ-COM-001`).
+  /// error, a malformed or absent reply (`REQ-COM-001`). As health: the most
+  /// recent exchange faulted in that way and nothing since has shown the
+  /// transport to be sound again.
   TRANSPORT_FAILURE,
   /// The device understood the command and refused it — angles outside its
   /// own envelope, or a burst longer than its own bound (`REQ-AIM-002`,
-  /// `REQ-SAF-001`). A refusal is a working safety limit, not a fault.
+  /// `REQ-SAF-001`). A refusal is a working safety limit, not a fault. As
+  /// health: the device is answering and rejecting what it is told, which is a
+  /// disagreement about limits and not a link to send water over.
   REJECTED,
 };
 
@@ -90,6 +105,13 @@ enum class LinkStatus : std::uint8_t {
 /// * **Self-terminate a burst.** A fire command activates the actuator for at
 ///   most the bounded duration with no further command required, and with no
 ///   dependence on the caller still being alive.
+/// * **Answer `health()` without talking to the device.** The query is
+///   answered from what the commanding side already knows. It transmits
+///   nothing, blocks on nothing and changes nothing (`REQ-COM-003`).
+/// * **Keep the commanding side's picture current.** Every command is answered
+///   by a reply that distinguishes acceptance from refusal, and the device
+///   emits a periodic heartbeat, so `health()` can degrade without a fire
+///   command being sent to discover the fault (`REQ-COM-001`, `REQ-COM-003`).
 class ActuatorLink {
  public:
   ActuatorLink() = default;
@@ -122,13 +144,32 @@ class ActuatorLink {
   /// offer, because it is the one that must work when nothing else does.
   [[nodiscard]] virtual LinkStatus send_safe_state_command() = 0;
 
-  /// Whether the link is currently usable.
+  /// The link's health **right now**, before anything is sent (`REQ-COM-003`).
   ///
-  /// A hint, not a guarantee: the link may still fail on the next command, so
-  /// callers must handle a failing `LinkStatus` regardless. It exists so that
-  /// an engagement is not begun over a link already known to be down
-  /// (`REQ-COM-002`).
-  [[nodiscard]] virtual bool is_available() const noexcept = 0;
+  /// This is the query `REQ-SAF-008` tests, and it is the reason that rule can
+  /// execute at all: a burst is authorised only while this returns
+  /// `LinkStatus::OK`, and each other value carries its own refusal
+  /// (`refusal_for`, `safety_policy.hpp`). A boolean stood here once, which
+  /// made two of the four statuses unreachable at the moment of the decision —
+  /// they existed only as the outcome of an exchange already made — so the
+  /// rule was correct and dead (ADR-0016).
+  ///
+  /// **Answered without an exchange.** Transmits nothing, blocks on nothing,
+  /// changes nothing on either device; `noexcept` and `const` say so in the
+  /// type system. Requiring a round trip would restore the circularity of
+  /// having to talk to the device to learn whether you may talk to it. An
+  /// implementation answers from its own transport state: is the port open,
+  /// did the last exchange fault, has the heartbeat arrived when it was due.
+  ///
+  /// It is the current picture, not a promise about the future: the link may
+  /// still fail on the very next command, which is why every operation returns
+  /// a `LinkStatus` and why `REQ-COM-002` still applies to what comes back.
+  ///
+  /// There is no second, coarser query. One question about link health has one
+  /// answer; two overlapping queries are two sources of truth, and two sources
+  /// of truth are how they come to disagree. "Is the link usable?" is
+  /// `health() == LinkStatus::OK`.
+  [[nodiscard]] virtual LinkStatus health() const noexcept = 0;
 };
 
 }  // namespace pigeon::core
