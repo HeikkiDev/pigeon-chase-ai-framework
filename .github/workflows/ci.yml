@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The workflow-evidence check inspects the commits this branch adds,
+          # so it needs history rather than a shallow clone.
+          fetch-depth: 0
+
+      - name: Install toolchain
+        run: brew install ninja llvm
+
+      - name: Cache CMake dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/macos-debug/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('cmake/GoogleTest.cmake') }}
+
+      # Runs the exact same entry point developers and agents run locally.
+      # This now includes the architecture, determinism, traceability and
+      # workflow-evidence gates, so CI and `make check` cannot drift apart.
+      - name: Run repository check
+        env:
+          PIGEON_STRICT_TOOLS: "1"
+          PIGEON_COMMIT_RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || '' }}
+        run: scripts/check.sh
+
+  sanitizers:
+    name: sanitizers (ASan + UBSan)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: brew install ninja
+
+      # Undefined behaviour in the safety-critical path must fail the build,
+      # not surface on a roof in the rain.
+      - name: Build and test under sanitizers
+        run: scripts/check.sh --preset macos-asan --skip-format --skip-tidy --skip-workflow
