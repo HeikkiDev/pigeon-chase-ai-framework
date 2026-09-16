@@ -153,7 +153,18 @@ fi
 # forget to run.
 if [[ "$SKIP_TRACE" == "0" ]]; then
   step "Checking requirement traceability"
-  scripts/trace.sh > /dev/null || fail "traceability gaps - run scripts/trace.sh"
+  # --tests-passed is the witness that makes "verified" an honest word. It is
+  # passed only when this run actually executed the suite and it went green;
+  # with --skip-tests nothing was proven, so trace.sh reports citations instead
+  # and refuses to write the ratchet.
+  #
+  # Written as two explicit calls rather than an argument array: macOS ships
+  # bash 3.2, where expanding an empty array under `set -u` aborts the script.
+  if [[ "$SKIP_TESTS" == "0" ]]; then
+    scripts/trace.sh --tests-passed > /dev/null || fail "traceability gaps - run scripts/trace.sh"
+  else
+    scripts/trace.sh > /dev/null || fail "traceability gaps - run scripts/trace.sh"
+  fi
   ok "no coverage regressions; unverified work is reported"
 else
   warn "traceability check skipped"

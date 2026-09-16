@@ -33,21 +33,31 @@
 # Usage:
 #   scripts/trace.sh                    # print the matrix, fail on gaps
 #   scripts/trace.sh --report           # print the matrix, never fail
+#   scripts/trace.sh --tests-passed     # the caller witnessed a green suite
 #   scripts/trace.sh --update-baseline  # record the current verified set
 #   scripts/trace.sh --root DIR         # check an arbitrary tree (used by tests)
+#
+# Citing a requirement is not proving it. This script reads test SOURCES, so on
+# its own it can only report which requirements are CITED by a test. A suite
+# that does not even link cites just as loudly as one that passes. Only the
+# caller knows whether the tests actually ran green, so it must say so with
+# --tests-passed; scripts/check.sh passes it after, and only after, ctest has
+# succeeded. Without it the wording stays honest and the ratchet is read-only.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPORT_ONLY=0
 UPDATE_BASELINE=0
+TESTS_PASSED=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --root)            ROOT="$2"; shift 2 ;;
     --report)          REPORT_ONLY=1; shift ;;
+    --tests-passed)    TESTS_PASSED=1; shift ;;
     --update-baseline) UPDATE_BASELINE=1; shift ;;
-    -h|--help) sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -118,7 +128,18 @@ declared_ids=""
 retired_ids=""
 successors=""
 
-printf '%-16s %-12s %-22s %s\n' "REQUIREMENT" "VERIFIED" "SUPERSEDED BY" "VERIFIED BY"
+# Say only what this script actually witnessed. With --tests-passed the caller
+# has seen the suite go green, so a cited requirement really is verified; without
+# it, all that is known is that some test names the ID.
+if [[ "$TESTS_PASSED" == "1" ]]; then
+  CLAIM_COLUMN="VERIFIED"
+  CLAIM_SUMMARY="verified by tests"
+else
+  CLAIM_COLUMN="CITED"
+  CLAIM_SUMMARY="cited by tests"
+fi
+
+printf '%-16s %-12s %-22s %s\n' "REQUIREMENT" "$CLAIM_COLUMN" "SUPERSEDED BY" "CITED BY"
 printf '%-16s %-12s %-22s %s\n' "---------------" "-----------" "---------------------" "-----------"
 
 total=0
@@ -153,6 +174,19 @@ done < <(requirements)
 verified_now="$(printf '%s' "$verified_now" | grep . | LC_ALL=C sort -u || true)"
 
 if [[ "$UPDATE_BASELINE" == "1" ]]; then
+  # The ratchet records claims that were PROVEN, so it may only be written from
+  # a run whose tests were witnessed passing. Allowing otherwise would let a red
+  # suite bake in coverage it never had, and every later run would defend that
+  # fiction as though it were earned.
+  if [[ "$TESTS_PASSED" != "1" ]]; then
+    echo
+    echo "error: refusing to update $BASELINE_FILE without evidence the tests passed" >&2
+    echo "       This script reads test sources, so on its own it knows only which" >&2
+    echo "       requirements are cited - not which are proven. Run the full gate" >&2
+    echo "       (scripts/check.sh), which passes --tests-passed once ctest is green," >&2
+    echo "       or pass --tests-passed yourself if you have just witnessed that." >&2
+    exit 1
+  fi
   mkdir -p "$(dirname "$BASELINE_FILE")"
   printf '%s\n' "$verified_now" > "$BASELINE_FILE"
   echo
@@ -201,7 +235,11 @@ if [[ -f "$BASELINE_FILE" ]]; then
 fi
 
 echo
-echo "$total requirement(s) declared, $(printf '%s' "$verified_now" | grep -c . || true) verified by tests."
+echo "$total requirement(s) declared, $(printf '%s' "$verified_now" | grep -c . || true) ${CLAIM_SUMMARY}."
+if [[ "$TESTS_PASSED" != "1" ]]; then
+  echo "Citing is not proving: run the full gate (scripts/check.sh) to witness the"
+  echo "tests actually passing before treating any of these as verified."
+fi
 
 if [[ "$unverified" -gt 0 ]]; then
   echo "$unverified requirement(s) still UNVERIFIED - outstanding work, not a failure."
