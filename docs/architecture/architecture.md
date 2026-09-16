@@ -153,6 +153,74 @@ These responsibilities should remain loosely coupled through well-defined interf
 
 The core application must remain hardware-independent so that the complete pipeline can be simulated and tested on macOS.
 
+## The `core/` seams
+
+`core/` is cut along the boundary between **deciding** and **doing**
+(ADR-0007). Each header below is one seam; each is hardware-free, and the three
+hardware-shaped ones are interfaces with simulated implementations (ADR-0001).
+
+| Header                    | Responsibility                                                                                     | Serves                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `geometry.hpp`            | Image-plane vocabulary: `PixelPoint`, `BoundingBox`, `ImageSize`, `PixelDistance`.                    | `REQ-TRK-007`, `REQ-TRK-008`, `REQ-AIM-001`      |
+| `frame.hpp`               | `FrameView`: a borrowed, non-owning view of one packed RGB888 frame. No camera type exists in `core/`. | `REQ-DET-002`, `REQ-DET-004`, `REQ-DEV-001`      |
+| `detection.hpp`           | `DetectionResult` (`NONE`/`FOUND`), `Detection`, and `DetectionOutcome`, which is `FOUND` if and only if it carries a detection. | `REQ-DET-001`                    |
+| `detector.hpp`            | `Detector`: the seam to the model runtime. Total, deterministic, stateless across frames.             | `REQ-DET-001`, `REQ-DET-002`                     |
+| `track.hpp`               | `TrackId`, `Track`, and the pure functions `associate_detections` and `select_confirmed_target`. A track missed for one frame is discarded; an engaged track is retired when its engagement ends. | `REQ-TRK-002`, `REQ-TRK-007`…`REQ-TRK-009`, `REQ-TRK-012` |
+| `target_state.hpp`        | The pure transition function `advance`, over `TargetMachineState` and `FrameInput`, emitting an intent. `TargetMachineState` carries the track set, so the confirmation reset cannot be skipped. | `REQ-TRK-001`…`REQ-TRK-006`, `REQ-TRK-010`…`REQ-TRK-012`, `REQ-SAF-002` |
+| `aiming.hpp`              | The boresighted transform, `Angle`/`ServoAngles`, and the empty-by-default `AngleRange` and envelope.  | `REQ-AIM-001`, `REQ-AIM-002`                   |
+| `configuration.hpp`       | `Configuration`: a plain value type, parsed in `raspberry/`, inert by default. Carries at most one exclusion zone. | `REQ-AIM-003`, `REQ-SAF-001`, `REQ-SAF-003`, `REQ-SAF-005`, `REQ-SAF-006` |
+| `clock.hpp`               | `MonotonicClock`: the only way `core/` can learn the time.                                            | `REQ-SAF-005`, `REQ-DEV-002`                     |
+| `actuator_link.hpp`       | `ActuatorLink`: the device boundary, with failure as a returned `LinkStatus`.                         | `REQ-COM-001`, `REQ-COM-002`, `REQ-SAF-004`      |
+| `safety_policy.hpp`       | `SafetyPolicy`: clamp, exclusion zone, cool-down, rate limit, bounded burst. Every transmitted command counts. | `REQ-SAF-001`…`REQ-SAF-007`, `REQ-AIM-002`       |
+
+The pipeline reads as a chain of values, with state carried by the caller:
+
+```text
+FrameView ─▶ Detector ─▶ DetectionOutcome
+                            │
+                            ▼
+      associate_detections(state.tracks, …) ─▶ TrackUpdate
+                            │
+                            ▼
+                   FrameInput ─▶ advance(state, input) ─▶ TargetTransition
+                            ▲                                │ intent
+   state = transition.next ──┘                               ▼
+   (tracks carried back, with any retirement applied)
+                        aim_at_centroid ─▶ SafetyPolicy ─▶ FireAuthorisation
+                                                             │
+                                                             ▼
+                                                        ActuatorLink
+```
+
+Three properties of this shape matter more than its details:
+
+* **The fire path crosses three independent components.** The state machine
+  says the bird is there, the safety policy says firing at it is permitted, and
+  the link says the device accepted it. None of them can fire alone
+  (`REQ-SAF-002`).
+* **The state machine emits an intent, not a command.** Clamping, the
+  exclusion zone and rate limiting happen after it, which is what keeps it a
+  pure function with no configuration and no clock (ADR-0005).
+* **Identity is checked at every step of the fire path.** One track confirms
+  (`REQ-TRK-002`), the same track must be re-detected to verify
+  (`REQ-TRK-010`, ADR-0009), and that is why `FrameInput` carries tracks rather
+  than a bare classification. The engagement then ends at the burst and the
+  machine returns to `SEARCHING`, with repetition bounded by the rate limiter
+  alone (`REQ-TRK-011`, ADR-0012).
+* **Failure is a value.** `LinkStatus`, `FireRefusal` and `std::optional`
+  cross module boundaries; exceptions do not.
+* **The caller carries one value, and it is the state machine's.**
+  `TargetMachineState` holds the track set and the identity allocator as well
+  as the state, because the confirmation counters are safety state: ending an
+  engagement retires the engaged track (`REQ-TRK-012`), and the only track set
+  a caller has to hand to the next frame is the one the machine gave back, with
+  the retirement already applied (ADR-0013).
+
+`ActuatorLink` is the *operation-level* half of the device boundary. Its wire
+encoding — framing, checksums, replies — is still to be specified in this
+directory (`REQ-COM-001`), and the interface deliberately says nothing about
+it.
+
 ## Development Principles
 
 These principles are the reason the architecture is shaped the way it is.
@@ -224,3 +292,7 @@ uses the immediately following frame and reads no clock, which keeps the
 safety-critical component a pure function and its tests free of timing
 (ADR-0005). Elapsed real time appears in exactly two places — the rate limiter,
 through an injected monotonic clock, and the firmware's own burst timer.
+
+In code, that injected clock is `MonotonicClock` (`core/clock.hpp`), and the
+only component that holds one is `SafetyPolicy`. `advance`, the state
+transition function, takes no clock and has no way to obtain one.
