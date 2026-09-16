@@ -1,5 +1,6 @@
 #pragma once
 
+#include <compare>
 #include <cstdint>
 
 /// Image-plane geometry: the vocabulary types every detection, track and
