@@ -171,7 +171,7 @@ hardware-shaped ones are interfaces with simulated implementations (ADR-0001).
 | `configuration.hpp`       | `Configuration`: a plain value type, parsed in `raspberry/`, inert by default. Carries at most one exclusion zone. | `REQ-AIM-003`, `REQ-SAF-001`, `REQ-SAF-003`, `REQ-SAF-005`, `REQ-SAF-006` |
 | `clock.hpp`               | `MonotonicClock`: the only way `core/` can learn the time.                                            | `REQ-SAF-005`, `REQ-DEV-002`                     |
 | `actuator_link.hpp`       | `ActuatorLink`: the device boundary, with failure as a returned `LinkStatus`.                         | `REQ-COM-001`, `REQ-COM-002`, `REQ-SAF-004`      |
-| `safety_policy.hpp`       | `SafetyPolicy`: clamp, exclusion zone, cool-down, rate limit, bounded burst. Every transmitted command counts. | `REQ-SAF-001`…`REQ-SAF-007`, `REQ-AIM-002`       |
+| `safety_policy.hpp`       | `SafetyPolicy`: link health, clamp, exclusion zone, cool-down, rate limit, bounded burst. Every transmitted command counts. | `REQ-SAF-001`…`REQ-SAF-008`, `REQ-AIM-002`       |
 
 The pipeline reads as a chain of values, with state carried by the caller:
 
@@ -209,6 +209,14 @@ Three properties of this shape matter more than its details:
   alone (`REQ-TRK-011`, ADR-0012).
 * **Failure is a value.** `LinkStatus`, `FireRefusal` and `std::optional`
   cross module boundaries; exceptions do not.
+* **The link is fail-closed.** Only `LinkStatus::OK` authorises a burst; every
+  other status refuses with its own `FireRefusal`, mapped in one place by
+  `refusal_for`, so a status added later cannot inherit a permission nobody
+  granted it (`REQ-SAF-008`, ADR-0015).
+* **Boundaries are stated, not guessed.** The association radius is inclusive
+  (`REQ-TRK-007`), and every duration in `core/` uses one convention: a period
+  has elapsed at `elapsed >= duration`, and windows are half-open, so a burst
+  exactly one minute old has left the rate window (`REQ-SAF-005`, ADR-0014).
 * **The caller carries one value, and it is the state machine's.**
   `TargetMachineState` holds the track set and the identity allocator as well
   as the state, because the confirmation counters are safety state: ending an
@@ -219,7 +227,10 @@ Three properties of this shape matter more than its details:
 `ActuatorLink` is the *operation-level* half of the device boundary. Its wire
 encoding — framing, checksums, replies — is still to be specified in this
 directory (`REQ-COM-001`), and the interface deliberately says nothing about
-it.
+it. Because no seam in `core/` represents the encoding, `REQ-COM-001` has
+nothing to test against and stays `UNVERIFIED` until that protocol is
+designed; the requirement now records this explicitly so its status is
+explained rather than mysterious.
 
 ## Development Principles
 

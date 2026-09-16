@@ -39,6 +39,15 @@ struct FireCommand {
 /// boundary, and `REQ-COM-002` requires the caller to *act* on a failure —
 /// abandon the engagement, fire nothing, return to `SEARCHING` — which is
 /// control flow, not an exceptional condition.
+///
+/// **Only `OK` permits firing.** Every other value refuses the burst, each
+/// with its own `FireRefusal` (`REQ-SAF-008`, `safety_policy.hpp`, ADR-0015).
+/// A status added to this enumeration must be given a refusal reason in the
+/// same change; `refusal_for` is where that is enforced.
+///
+/// A status is about the *exchange*, not about the water: a command that was
+/// transmitted counts towards the cool-down and the rate limit whatever the
+/// status says afterwards (`REQ-SAF-007`, ADR-0011).
 enum class LinkStatus : std::uint8_t {
   /// The command was transmitted and accepted.
   OK,

@@ -75,7 +75,8 @@ struct PixelDistance {
 /// Centroid-to-centroid distance between two points in the image frame.
 ///
 /// The association metric of `REQ-TRK-007`: a detection joins the nearest
-/// existing track whose centroid lies within the association radius.
+/// existing track whose centroid lies within the association radius, the
+/// radius itself included.
 [[nodiscard]] PixelDistance distance_between(const PixelPoint& first,
                                              const PixelPoint& second) noexcept;
 

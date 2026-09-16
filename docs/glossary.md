@@ -13,7 +13,7 @@ Ambiguous terminology is one of the main causes of agent drift.
 | **Track**              | A sequence of detections in successive frames associated as the same pigeon (`REQ-TRK-007`). Discarded as soon as a frame brings it no detection (`REQ-TRK-009`, ADR-0010). |
 | **Retirement**         | The discarding of the engaged track when its engagement ends, by burst or by abandonment. It resets the confirmation counter, so the same bird must earn three fresh consecutive detections before it can be confirmed again (`REQ-TRK-012`, ADR-0013). |
 | **Track identifier**   | The opaque identity of a track. Assigned in ascending order, never reused within a run, never interpreted as an index or a priority. |
-| **Association radius** | The maximum centroid distance at which a detection is matched to an existing track (`REQ-TRK-007`).             |
+| **Association radius** | The maximum centroid distance at which a detection is matched to an existing track. Inclusive: a centroid exactly the radius away associates (`REQ-TRK-007`). |
 | **Confirmation counter** | The count of consecutive frames in which one track was detected. It resets when the track is absent (`REQ-TRK-003`) and when its engagement ends (`REQ-TRK-012`); both resets happen by the track being discarded, so a live track's count is never zero (`REQ-TRK-009`, ADR-0013). |
 | **Confirmed target**   | A track detected in three consecutive frames (`REQ-TRK-002`).                                                   |
 | **Selected target**    | The one confirmed track engaged in this engagement — the largest by bounding-box area (`REQ-TRK-008`).          |
@@ -27,6 +27,8 @@ Ambiguous terminology is one of the main causes of agent drift.
 | **Fire command**       | A message instructing the actuator system to activate the water actuator.                                       |
 | **Safe-state command** | A message instructing the actuator system to deactivate the water actuator. Sent on startup, on shutdown and when an engagement is abandoned (`REQ-SAF-004`). |
 | **Fire authorisation** | The safety policy's verdict on an intent to fire: granted with a clamped aim and a bounded duration, or refused with a named reason (`REQ-SAF-002`). |
+| **Refusal reason**     | The named cause of a refused burst. Each `LinkStatus` other than `OK` has its own, shared with no other status, so a refusal is diagnosable (`REQ-SAF-008`, ADR-0015). |
+| **Rate window**        | The one-minute span against which the six-burst limit is counted. Half-open: a burst exactly one minute old has left it (`REQ-SAF-005`, ADR-0014). |
 | **Actuator link**      | The seam between `core/` and the actuator system. Failure is a returned status, never an exception (`REQ-COM-002`). |
 | **Monotonic clock**    | The injected, never-decreasing time source. The only way `core/` learns the time, and used only for the cool-down and rate limit (ADR-0005). |
 | **Servo frame**        | The angle convention: X = 0° straight ahead with positive to the right, Y = 0° at the horizon with positive elevated (`REQ-AIM-002`, ADR-0004). |
@@ -38,7 +40,7 @@ Ambiguous terminology is one of the main causes of agent drift.
 | **Mechanical envelope** | The configured minimum and maximum angle of each servo axis (`REQ-AIM-002`). Empty by default, so an uncalibrated system cannot fire. |
 | **Boresight**          | The alignment of the camera's optical axis with the nozzle's axis. The camera rides the pan/tilt rig (`REQ-AIM-001`, ADR-0004). |
 | **Boresight offset**   | The configured angular correction for imperfect camera/nozzle alignment (`REQ-AIM-001`).                        |
-| **Cool-down**          | The minimum interval after firing before another engagement may begin (`REQ-SAF-005`).                          |
+| **Cool-down**          | The minimum interval after a transmitted burst before another may be sent. It has elapsed once `elapsed >= cool_down`, so a burst at exactly that instant is permitted (`REQ-SAF-005`, ADR-0014). |
 | **Simulated component** | A production-quality software implementation of a hardware interface, used for development and CI.             |
 | **Mock**               | A test double asserting on interactions. Used inside tests only, never shipped.                                 |
 | **Fixture**            | A recorded, version-controlled input (image or scenario) used for deterministic tests.                          |

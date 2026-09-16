@@ -96,7 +96,11 @@ struct TrackUpdate {
 ///
 /// Rules:
 /// * each detection joins the **nearest** existing track whose centroid lies
-///   within `association_radius` of it (`REQ-TRK-007`);
+///   within `association_radius` of it. The radius is **inclusive**: a
+///   centroid exactly `association_radius` away associates, so the test is
+///   `distance <= association_radius` (`REQ-TRK-007`). Exact equality is
+///   vanishingly rare in floating point; the rule exists so that the tracker
+///   and its tests cannot each guess differently;
 /// * a detection that matches no track starts a new track, taking `next_id`;
 /// * a track that received a detection has its count incremented and its
 ///   `latest` replaced;
@@ -104,9 +108,10 @@ struct TrackUpdate {
 ///   counter reset of `REQ-TRK-003` is realised (`REQ-TRK-009`). A `NONE`
 ///   frame therefore empties the track set entirely.
 ///
-/// A zero `association_radius` — the default in an uncalibrated configuration
-/// — matches nothing, so every detection starts a new track and nothing is
-/// ever confirmed. That is the inert behaviour `REQ-SAF-004` asks for.
+/// A zero `association_radius` matches nothing but a detection exactly on a
+/// track's centroid, which no real detector produces twice, so the default of
+/// an uncalibrated configuration starts a new track for every detection and
+/// confirms nothing. That is the inert behaviour `REQ-SAF-004` asks for.
 ///
 /// There is no track-retention or track-decay parameter, and adding one would
 /// change no confirmation outcome: a retained track with a zeroed count
