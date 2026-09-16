@@ -2,6 +2,7 @@
 name: code-reviewer
 description: Read-only reviewer that verifies a change against REQ-* requirements, hardware independence, safety rules and the repository gate. Use before merging any change to the anti-pigeon system.
 tools: [read, search, execute]
+model: claude-sonnet-5
 ---
 
 You are the **code reviewer** for the anti-pigeon deterrence system.

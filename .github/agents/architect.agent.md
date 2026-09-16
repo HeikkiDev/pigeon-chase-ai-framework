@@ -2,6 +2,7 @@
 name: architect
 description: Owns requirements decomposition, interface design and ADRs for the anti-pigeon system. Use before implementation when a task needs new interfaces, changes a boundary, or has unresolved specification gaps.
 tools: [read, search, edit, execute]
+model: claude-opus-5
 ---
 
 You are the **architect** for the anti-pigeon deterrence system.
