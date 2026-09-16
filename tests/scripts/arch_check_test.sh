@@ -134,6 +134,100 @@ EOF
 expect_exit 'permits hardware headers in raspberry/ and arduino/' 0 \
   "$ARCH_CHECK" --root "$sandbox"
 
+# --------------------------------------- exhaustive refusal mapping (ADR-0015) --
+# REQ-SAF-008 requires every LinkStatus to carry its own refusal reason. The
+# guarantee that no status is forgotten rests on -Wswitch, which only fires when
+# the switch has no `default:` label. A `default:` therefore silently disarms the
+# compiler check and is invisible in review, so the gate has to see it.
+sandbox="$(new_sandbox)"
+write_file "$sandbox/core/src/safety_policy.cpp" <<'EOF'
+namespace pigeon::core {
+RefusalReason refusal_for(LinkStatus status) {
+  switch (status) {
+    case LinkStatus::OK: return RefusalReason::NONE;
+    case LinkStatus::UNAVAILABLE: return RefusalReason::LINK_UNAVAILABLE;
+    default: return RefusalReason::LINK_UNAVAILABLE;
+  }
+}
+}  // namespace pigeon::core
+EOF
+expect_exit 'rejects a default: label in refusal_for (ADR-0015)' 1 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+expect_output_contains 'names ADR-0015 when rejecting the default: label' \
+  'ADR-0015' "$ARCH_CHECK" --root "$sandbox"
+
+# The ban is on defeating -Wswitch inside that one function, not on `default:`
+# as a keyword. A switch elsewhere in the same file is ordinary C++.
+sandbox="$(new_sandbox)"
+write_file "$sandbox/core/src/safety_policy.cpp" <<'EOF'
+namespace pigeon::core {
+RefusalReason refusal_for(LinkStatus status) {
+  switch (status) {
+    case LinkStatus::OK: return RefusalReason::NONE;
+    case LinkStatus::UNAVAILABLE: return RefusalReason::LINK_UNAVAILABLE;
+    case LinkStatus::TRANSPORT_FAILURE: return RefusalReason::LINK_TRANSPORT_FAILURE;
+    case LinkStatus::REJECTED: return RefusalReason::LINK_REJECTED;
+  }
+  return RefusalReason::LINK_UNAVAILABLE;
+}
+
+const char* describe(Phase phase) {
+  switch (phase) {
+    case Phase::SEARCHING: return "searching";
+    default: return "other";
+  }
+}
+}  // namespace pigeon::core
+EOF
+expect_exit 'permits default: in an unrelated switch in the same file' 0 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+# Naming the function is not defining it. A gate that arms itself on any mention
+# would report a `default:` belonging to some entirely unrelated function later
+# in the file, and a gate that cries wolf is one people start passing with -k.
+sandbox="$(new_sandbox)"
+write_file "$sandbox/core/src/safety_policy.hpp" <<'EOF'
+namespace pigeon::core {
+// See refusal_for(LinkStatus) in safety_policy.cpp for the mapping
+// used when the link is not healthy
+
+/* The block comment below also names refusal_for(LinkStatus) without
+   defining it anywhere. */
+
+const char* describe(Phase phase) {
+  switch (phase) {
+    case Phase::SEARCHING: return "searching";
+    default: return "other";
+  }
+}
+}  // namespace pigeon::core
+EOF
+expect_exit 'permits default: when refusal_for is only named in a comment' 0 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/core/src/safety_policy.hpp" <<'EOF'
+namespace pigeon::core {
+static_assert(true, "give the new status its own case in refusal_for()");
+
+const char* describe(Phase phase) {
+  switch (phase) {
+    case Phase::SEARCHING: return "searching";
+    default: return "other";
+  }
+}
+}  // namespace pigeon::core
+EOF
+expect_exit 'permits default: when refusal_for is only named in a string' 0 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+# The function does not exist yet. A gate that demands its presence would fail
+# the whole repository until it is written, so absence is not a violation.
+sandbox="$(new_sandbox)"
+expect_exit 'permits a tree in which refusal_for does not yet exist' 0 \
+  "$ARCH_CHECK" --root "$sandbox"
+
 # ------------------------------------------------------------ the real repository --
 expect_exit 'the real repository satisfies its own architectural rules' 0 \
   "$ARCH_CHECK" --root "$PIGEON_REPO_ROOT"
