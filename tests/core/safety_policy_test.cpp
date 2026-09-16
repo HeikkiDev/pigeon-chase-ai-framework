@@ -1,12 +1,16 @@
 // Verifies: REQ-AIM-002, REQ-COM-002, REQ-SAF-001, REQ-SAF-002, REQ-SAF-003,
-//           REQ-SAF-004, REQ-SAF-005, REQ-SAF-006, REQ-SAF-007, REQ-DEV-002
+//           REQ-SAF-004, REQ-SAF-005, REQ-SAF-006, REQ-SAF-007, REQ-SAF-008,
+//           REQ-DEV-002
 //
 // The guard between an intent to fire and a fire command. Every test here is
 // about a rule that must be able to say *no*, so the refusal reason is
 // asserted as well as the refusal itself: "it did not fire" is not a
 // diagnosis.
 
+#include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -32,6 +36,7 @@ using pigeon::core::EngagementIntent;
 using pigeon::core::FireAuthorisation;
 using pigeon::core::FireRefusal;
 using pigeon::core::LinkStatus;
+using pigeon::core::refusal_for;
 using pigeon::core::SafetyPolicy;
 using pigeon::core::ServoAngles;
 using pigeon::core::TargetMachineState;
@@ -172,6 +177,238 @@ TEST(SafetyPolicyFire, RefusesWhenTheLinkIsUnavailable) {
 }
 
 // ---------------------------------------------------------------------------
+// REQ-SAF-008 — only a healthy link may fire.
+// ---------------------------------------------------------------------------
+
+// Every value of `LinkStatus`, in declaration order.
+//
+// Hand-written because the enumeration offers no count and ADR-0015 rejected a
+// `COUNT` sentinel on purpose. The assertion below pins the shape the list was
+// written against, in the same terms the header uses, so a status that is
+// *inserted, reordered or removed* stops this file compiling with a message
+// saying what to do.
+//
+// It does **not** catch a status *appended* after `REJECTED`: appending leaves
+// every existing value unchanged, so neither this assertion nor the one in
+// `safety_policy.hpp` can see it. That case is caught at compile time by
+// `-Wswitch` on the `default:`-free switch in `refusal_for`'s definition
+// (ADR-0015), which is a property of a source file this suite cannot read.
+// Runtime exhaustiveness over an open enumeration is not testable without a
+// sentinel, and no test here pretends otherwise.
+constexpr std::array<LinkStatus, 4> all_link_statuses{
+    LinkStatus::OK,
+    LinkStatus::UNAVAILABLE,
+    LinkStatus::TRANSPORT_FAILURE,
+    LinkStatus::REJECTED,
+};
+
+static_assert(static_cast<std::uint8_t>(LinkStatus::OK) == 0U &&
+                  static_cast<std::uint8_t>(LinkStatus::UNAVAILABLE) == 1U &&
+                  static_cast<std::uint8_t>(LinkStatus::TRANSPORT_FAILURE) == 2U &&
+                  static_cast<std::uint8_t>(LinkStatus::REJECTED) == 3U,
+              "LinkStatus has changed shape. Add the new status to all_link_statuses so that "
+              "every test below covers it, and check it has its own FireRefusal "
+              "(REQ-SAF-008, ADR-0015).");
+
+// Verifies: REQ-SAF-008 — "every LinkStatus value is either OK or has a
+// refusal reason: no status is unhandled", and "only OK yields nullopt".
+//
+// What this adds over the compile-time mechanisms: `-Wswitch` proves only that
+// every enumerator has a *case*, and the header's `static_assert` proves only
+// that the enumeration has not changed shape. Neither says anything about the
+// values returned. A `refusal_for` that answered `LINK_UNAVAILABLE` for all
+// three faults would satisfy both and still be wrong, and that is the mistake
+// this test and the next one exist to catch.
+TEST(LinkStatusRefusalMapping, RefusesEveryStatusExceptOk) {
+  EXPECT_FALSE(refusal_for(LinkStatus::OK).has_value())
+      << "OK is the one status that may fire";
+
+  int refusing_statuses = 0;
+  for (const LinkStatus status : all_link_statuses) {
+    if (status == LinkStatus::OK) {
+      continue;
+    }
+    EXPECT_TRUE(refusal_for(status).has_value())
+        << "status " << static_cast<int>(status) << " has no refusal reason";
+    ++refusing_statuses;
+  }
+
+  // Anti-vacuity: an empty or OK-only list would pass every loop above.
+  EXPECT_EQ(refusing_statuses, 3)
+      << "the list of statuses under test must cover every non-OK status";
+}
+
+// Verifies: REQ-SAF-008 — "the refusal reason differs for each of those three
+// statuses, and no two statuses share a reason".
+//
+// The comparison is derived from `all_link_statuses` rather than written out as
+// three named pairs, so a status added to that list is compared against every
+// other one without anybody remembering to add a case here.
+TEST(LinkStatusRefusalMapping, GivesNoTwoStatusesTheSameReason) {
+  std::vector<FireRefusal> reasons;
+  for (const LinkStatus status : all_link_statuses) {
+    const std::optional<FireRefusal> reason = refusal_for(status);
+    if (reason.has_value()) {
+      reasons.push_back(*reason);
+    }
+  }
+
+  ASSERT_EQ(reasons.size(), 3U) << "nothing is proved by comparing fewer than every refusal";
+  for (std::size_t first = 0; first < reasons.size(); ++first) {
+    for (std::size_t second = first + 1; second < reasons.size(); ++second) {
+      EXPECT_NE(reasons[first], reasons[second])
+          << "two link statuses share refusal reason " << static_cast<int>(reasons[first])
+          << ", so a refusal in a log cannot say which fault occurred";
+    }
+  }
+}
+
+// Verifies: REQ-SAF-008 — "a link reporting OK and an otherwise permitted
+// engagement produces a fire command"; "a link reporting an unavailable link, a
+// transport failure, or a rejection each produces no fire command".
+//
+// The expected refusal is read from `refusal_for` rather than written out, so
+// the test asserts the policy *uses the one mapping* instead of asserting a
+// second, independently maintained copy of it. A policy that hard-coded
+// `LINK_UNAVAILABLE` for every fault would fail here.
+TEST(SafetyPolicyFire, GrantsOnlyOverALinkReportingOk) {
+  ManualClock clock;
+  SafetyPolicy policy{calibrated_configuration(), clock};
+
+  int granted = 0;
+  int refused = 0;
+  for (const LinkStatus status : all_link_statuses) {
+    const FireAuthorisation authorisation =
+        policy.authorise_fire(fire_intent(), straight_ahead, status);
+    const std::optional<FireRefusal> expected = refusal_for(status);
+
+    if (expected.has_value()) {
+      EXPECT_FALSE(authorisation.granted().has_value())
+          << "status " << static_cast<int>(status) << " authorised a burst";
+      EXPECT_EQ(authorisation.refusal_reason(), *expected)
+          << "status " << static_cast<int>(status)
+          << " refused for a reason other than the one refusal_for gives it";
+      ++refused;
+    } else {
+      EXPECT_TRUE(authorisation.granted().has_value())
+          << "a healthy link and a confirmed engagement must fire";
+      ++granted;
+    }
+  }
+
+  // Anti-vacuity: the loop must have exercised both answers, not just one.
+  EXPECT_EQ(granted, 1) << "exactly one status may fire";
+  EXPECT_EQ(refused, 3) << "every other status must refuse";
+}
+
+// Verifies: REQ-SAF-008 — "each status SHALL produce its own refusal reason,
+// distinct [...] from every other cause of refusal".
+//
+// The reasons are collected by driving the policy into each cause it can
+// refuse for, rather than by listing enumerators, so a collision introduced
+// anywhere — a link fault reusing `COOLING_DOWN`, a rate limit reusing
+// `LINK_REJECTED` — is caught by the same assertion.
+TEST(SafetyPolicyFire, GivesEveryCauseOfRefusalItsOwnReason) {
+  ManualClock clock;
+  std::vector<FireRefusal> reasons;
+
+  const auto record = [&reasons](const FireAuthorisation& authorisation, const char* cause) {
+    EXPECT_FALSE(authorisation.granted().has_value()) << cause << " did not refuse";
+    reasons.push_back(authorisation.refusal_reason());
+  };
+
+  // An unconfirmed engagement.
+  SafetyPolicy confirmed_policy{calibrated_configuration(), clock};
+  record(confirmed_policy.authorise_fire(transition_with(EngagementIntent::KEEP_SEARCHING),
+                                         straight_ahead, LinkStatus::OK),
+         "an unconfirmed engagement");
+
+  // An unconfigured rig: no envelope.
+  SafetyPolicy unconfigured_policy{Configuration{}, clock};
+  record(unconfigured_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK),
+         "an empty envelope");
+
+  // Every link fault.
+  for (const LinkStatus status : all_link_statuses) {
+    if (status == LinkStatus::OK) {
+      continue;
+    }
+    record(confirmed_policy.authorise_fire(fire_intent(), straight_ahead, status), "a link fault");
+  }
+
+  // An aim inside the exclusion zone.
+  Configuration zoned = calibrated_configuration();
+  zoned.safety.exclusion_zone = exclusion_zone(-10.0, 10.0, 0.0, 20.0);
+  SafetyPolicy zoned_policy{zoned, clock};
+  record(zoned_policy.authorise_fire(fire_intent(), ServoAngles{.x = Angle{0.0}, .y = Angle{10.0}},
+                                     LinkStatus::OK),
+         "an aim inside the exclusion zone");
+
+  // A burst inside the cool-down.
+  SafetyPolicy cooling_policy{calibrated_configuration(), clock};
+  ASSERT_TRUE(cooling_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+                  .granted()
+                  .has_value());
+  cooling_policy.record_fire_sent();
+  record(cooling_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK),
+         "a burst inside the cool-down");
+
+  // A burst past the engagement rate.
+  const Configuration configuration = calibrated_configuration();
+  SafetyPolicy rate_limited_policy{configuration, clock};
+  for (std::uint32_t burst = 0; burst < configuration.safety.max_engagements_per_minute; ++burst) {
+    ASSERT_TRUE(rate_limited_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+                    .granted()
+                    .has_value())
+        << "burst " << burst << " was refused while filling the rate window";
+    rate_limited_policy.record_fire_sent();
+    clock.advance_by(milliseconds{3000});
+  }
+  record(rate_limited_policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK),
+         "a burst past the engagement rate");
+
+  // Anti-vacuity: every cause the policy can refuse for must be represented,
+  // or the distinctness below is a statement about a subset.
+  ASSERT_EQ(reasons.size(), 8U)
+      << "one reason per cause: not confirmed, no envelope, three link faults, "
+         "exclusion zone, cool-down, rate limit";
+
+  for (std::size_t first = 0; first < reasons.size(); ++first) {
+    for (std::size_t second = first + 1; second < reasons.size(); ++second) {
+      EXPECT_NE(reasons[first], reasons[second])
+          << "causes " << first << " and " << second << " share refusal reason "
+          << static_cast<int>(reasons[first]) << ": a refusal must name its cause";
+    }
+  }
+}
+
+// Verifies: REQ-SAF-008 — "then, in order: link health (REQ-SAF-008,
+// REQ-COM-002), envelope clamp, the exclusion zone, cool-down and engagement
+// rate" (safety_policy.hpp).
+//
+// A rig that is both unconfigured and talking to a broken link has two reasons
+// to refuse. The header fixes which one is reported, so the diagnosis a field
+// operator sees is deterministic rather than a function of the order somebody
+// happened to write the checks in. This asserts the documented order; it is an
+// interface contract rather than an acceptance bullet of its own.
+TEST(SafetyPolicyFire, ReportsTheLinkFaultBeforeAnyOtherRefusal) {
+  ManualClock clock;
+  SafetyPolicy unconfigured_policy{Configuration{}, clock};
+
+  for (const LinkStatus status : all_link_statuses) {
+    if (status == LinkStatus::OK) {
+      continue;
+    }
+    const FireAuthorisation authorisation =
+        unconfigured_policy.authorise_fire(fire_intent(), straight_ahead, status);
+
+    EXPECT_FALSE(authorisation.granted().has_value());
+    EXPECT_EQ(authorisation.refusal_reason(), *refusal_for(status))
+        << "link health is checked before the envelope, so the link fault is the reason reported";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // REQ-SAF-003 / REQ-SAF-006 — the exclusion zone.
 // ---------------------------------------------------------------------------
 
@@ -275,6 +512,50 @@ TEST(SafetyPolicyRateLimit, RefusesASecondBurstUntilTheCoolDownHasElapsed) {
   EXPECT_TRUE(after.granted().has_value()) << "2001 ms is past the 2 s cool-down";
 }
 
+// Verifies: REQ-SAF-005 — "a burst authorised at **exactly** the cool-down
+// duration after the previous transmitted burst is permitted; one a
+// millisecond earlier is refused".
+//
+// The convention is `elapsed >= duration`, so the cool-down that begins at *t*
+// occupies the half-open interval [t, t + 2000 ms) and *t* + 2000 ms is the
+// first permitted instant (ADR-0014, Q18). This test lands on that instant
+// rather than either side of it: a `>` written where `>=` was meant changes the
+// answer at exactly one value of the clock, and only a test that evaluates that
+// value can see it.
+//
+// The clock is stepped so that it reads exactly the boundary, and that reading
+// is asserted before the question is asked, so the test cannot pass while
+// exercising some other instant.
+TEST(SafetyPolicyRateLimit, PermitsABurstAtExactlyTheCoolDownDuration) {
+  ManualClock clock;
+  const Configuration configuration = calibrated_configuration();
+  const milliseconds cool_down = configuration.safety.cool_down;
+  SafetyPolicy policy{configuration, clock};
+
+  const milliseconds fired_at = clock.now().since_epoch;
+  ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+                  .granted()
+                  .has_value());
+  policy.record_fire_sent();
+
+  clock.advance_by(cool_down - milliseconds{1});
+  ASSERT_EQ(clock.now().since_epoch - fired_at, cool_down - milliseconds{1})
+      << "the clock must sit one millisecond short of the boundary";
+  const FireAuthorisation one_millisecond_early =
+      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+  EXPECT_FALSE(one_millisecond_early.granted().has_value())
+      << "at cool-down minus 1 ms the period has not elapsed";
+  EXPECT_EQ(one_millisecond_early.refusal_reason(), FireRefusal::COOLING_DOWN);
+
+  clock.advance_by(milliseconds{1});
+  ASSERT_EQ(clock.now().since_epoch - fired_at, cool_down)
+      << "the clock must now read exactly the cool-down boundary";
+  const FireAuthorisation exactly_on_the_boundary =
+      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+  EXPECT_TRUE(exactly_on_the_boundary.granted().has_value())
+      << "elapsed >= duration: exactly the cool-down duration later is permitted";
+}
+
 // Verifies: REQ-SAF-005 — "a sequence of confirmed targets arriving faster
 // than the configured rate produces no more than the configured number of fire
 // commands per minute", and the window is a sliding one on the injected clock.
@@ -304,6 +585,58 @@ TEST(SafetyPolicyRateLimit, AllowsNoMoreThanTheConfiguredEngagementsPerMinute) {
       policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
   EXPECT_TRUE(later.granted().has_value())
       << "the rate window slides: bursts older than a minute no longer count";
+}
+
+// Verifies: REQ-SAF-005 — "a transmitted burst **exactly** one minute old no
+// longer counts towards the rate limit, so the engagement it occupied becomes
+// available again at that instant".
+//
+// The window of length *D* ending at *now* is half-open — it contains every
+// instant strictly later than *now - D* — so a burst exactly *D* old has left
+// it (ADR-0014, Q18). The pair of assertions brackets nothing: one lands one
+// millisecond before the roll, the other exactly on it.
+//
+// The six bursts are placed 3 s apart, so the cool-down cannot be the reason
+// for either answer, and the refusal reason is asserted to prove that the
+// refusal being observed is the rate limit and not something else.
+TEST(SafetyPolicyRateLimit, ABurstExactlyOneMinuteOldHasLeftTheRateWindow) {
+  constexpr milliseconds rate_window{60000};
+  ManualClock clock;
+  const Configuration configuration = calibrated_configuration();
+  SafetyPolicy policy{configuration, clock};
+
+  const milliseconds oldest_burst_at = clock.now().since_epoch;
+  for (std::uint32_t burst = 0; burst < configuration.safety.max_engagements_per_minute; ++burst) {
+    ASSERT_TRUE(policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK)
+                    .granted()
+                    .has_value())
+        << "burst " << burst << " was refused while setting the window up";
+    policy.record_fire_sent();
+    if (burst + 1 < configuration.safety.max_engagements_per_minute) {
+      clock.advance_by(milliseconds{3000});
+    }
+  }
+
+  // Move to exactly one millisecond before the oldest burst leaves the window.
+  const milliseconds elapsed = clock.now().since_epoch - oldest_burst_at;
+  clock.advance_by(rate_window - milliseconds{1} - elapsed);
+  ASSERT_EQ(clock.now().since_epoch - oldest_burst_at, rate_window - milliseconds{1})
+      << "the oldest burst must be one millisecond short of a minute old";
+  const FireAuthorisation still_full =
+      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+  EXPECT_FALSE(still_full.granted().has_value())
+      << "at 59 999 ms the oldest burst is still inside the window and the rate is full";
+  EXPECT_EQ(still_full.refusal_reason(), FireRefusal::RATE_LIMIT_REACHED)
+      << "the refusal must be the rate limit, not the cool-down: "
+         "the most recent burst is long past";
+
+  clock.advance_by(milliseconds{1});
+  ASSERT_EQ(clock.now().since_epoch - oldest_burst_at, rate_window)
+      << "the oldest burst must now be exactly one minute old";
+  const FireAuthorisation window_rolled =
+      policy.authorise_fire(fire_intent(), straight_ahead, LinkStatus::OK);
+  EXPECT_TRUE(window_rolled.granted().has_value())
+      << "the window is half-open: a burst exactly one minute old no longer counts";
 }
 
 // Verifies: REQ-SAF-007 — "authorising is not firing": `authorise_fire` records

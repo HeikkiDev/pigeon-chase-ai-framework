@@ -1,6 +1,6 @@
 // Verifies: REQ-COM-002, REQ-DET-001, REQ-DET-002, REQ-SAF-001, REQ-SAF-002,
-//           REQ-SAF-004, REQ-SAF-005, REQ-SAF-007, REQ-TRK-002, REQ-TRK-008,
-//           REQ-TRK-011, REQ-TRK-012, REQ-DEV-001, REQ-DEV-002
+//           REQ-SAF-004, REQ-SAF-005, REQ-SAF-007, REQ-SAF-008, REQ-TRK-002,
+//           REQ-TRK-008, REQ-TRK-011, REQ-TRK-012, REQ-DEV-001, REQ-DEV-002
 //
 // End-to-end scenarios: detection, association, the state machine, the safety
 // policy and a simulated actuator system, wired together exactly as the
@@ -220,6 +220,101 @@ TEST(EngagementScenario, TheFiredUponBirdMustEarnThreeFreshDetections) {
   EXPECT_EQ(link.fire_commands().size(), 2U);
 }
 
+// Verifies: REQ-SAF-008 — "a link reporting an unavailable link, a transport
+// failure, or a rejection each produces no fire command", driven end to end:
+// the bird is confirmed, the rig aims over a healthy link, and only then does
+// the link go wrong, so the fire decision is the first one that sees the fault.
+//
+// Every status in `all_link_statuses` is driven through the whole loop rather
+// than handed straight to the policy, because a rule that holds in a unit test
+// and is bypassed by the application protects nothing.
+TEST(EngagementScenario, NoLinkFaultProducesAFireCommand) {
+  int faults_exercised = 0;
+
+  for (const LinkStatus status :
+       {LinkStatus::UNAVAILABLE, LinkStatus::TRANSPORT_FAILURE, LinkStatus::REJECTED}) {
+    ManualClock clock;
+    SimulatedActuatorLink link{clock};
+    EngagementLoop loop{calibrated_configuration(), clock, link, test_image_size};
+
+    static_cast<void>(loop.process(bird_frame()));
+    static_cast<void>(loop.process(bird_frame()));
+    const FrameOutcome locking = loop.process(bird_frame());
+    ASSERT_TRUE(locking.aiming_command_sent)
+        << "status " << static_cast<int>(status) << ": the rig must aim before it can fire";
+
+    // The fault appears after the aiming exchange and before the fire decision.
+    loop.set_observed_link_status(status);
+    const FrameOutcome verification = loop.process(bird_frame());
+
+    EXPECT_EQ(verification.intent, EngagementIntent::FIRE_AT_TARGET)
+        << "status " << static_cast<int>(status)
+        << ": the state machine still wanted to fire, so the policy is what refused";
+    EXPECT_EQ(verification.link_status_presented, status)
+        << "the loop must present the observed status to the policy";
+    EXPECT_FALSE(verification.fire_command_sent)
+        << "status " << static_cast<int>(status) << " emitted a fire command";
+    EXPECT_TRUE(link.fire_commands().empty())
+        << "nothing may reach the actuator over a link that is not known to be healthy";
+    EXPECT_FALSE(link.water_active());
+
+    ASSERT_TRUE(verification.refusal.has_value())
+        << "status " << static_cast<int>(status) << ": a refusal must name its reason";
+    EXPECT_EQ(*verification.refusal, *pigeon::core::refusal_for(status))
+        << "status " << static_cast<int>(status)
+        << " refused for a reason other than its own";
+    ++faults_exercised;
+  }
+
+  // Anti-vacuity: the loop above must have run for every non-OK status.
+  EXPECT_EQ(faults_exercised, 3);
+}
+
+// Verifies: REQ-SAF-007, REQ-SAF-008 — "any command that was transmitted
+// counts, whatever the reply" (ADR-0011), followed end to end through a burst
+// the device rejected.
+//
+// Finding recorded in executable form: a rejected burst does **not** poison the
+// next engagement. `ActuatorLink` reports a detailed `LinkStatus` only as the
+// result of an exchange that has already happened, and the exchange
+// immediately before every fire decision is the *aiming* command of the
+// locking frame. So by the time the next fire decision is taken, the
+// application's most recent evidence about the link is that aiming succeeded,
+// and `REQ-SAF-008` is satisfied by presenting `OK`. The rejection is felt
+// through `REQ-SAF-007` — it consumed an engagement and started a cool-down —
+// and not through the link rule.
+TEST(EngagementScenario, ARejectedBurstStillCountsAndTheNextEngagementWaitsForTheCoolDown) {
+  ManualClock clock;
+  SimulatedActuatorLink link{clock};
+  Configuration configuration = calibrated_configuration();
+  // Above the device's own bound, so the device rejects the burst.
+  configuration.safety.max_fire_duration =
+      SimulatedActuatorLink::firmware_burst_bound + milliseconds{250};
+  EngagementLoop loop{configuration, clock, link, test_image_size};
+
+  const FrameOutcome burst = run_to_first_burst(loop);
+  ASSERT_TRUE(burst.fire_command_sent);
+  ASSERT_TRUE(burst.fire_status.has_value());
+  ASSERT_EQ(*burst.fire_status, LinkStatus::REJECTED);
+  ASSERT_FALSE(link.water_active()) << "a rejected burst opens no valve";
+
+  // Re-confirm the bird without moving the clock: still inside the cool-down.
+  const FrameOutcome inside_cool_down = run_to_first_burst(loop);
+  EXPECT_EQ(inside_cool_down.intent, EngagementIntent::FIRE_AT_TARGET);
+  EXPECT_FALSE(inside_cool_down.fire_command_sent);
+  ASSERT_TRUE(inside_cool_down.refusal.has_value());
+  EXPECT_EQ(*inside_cool_down.refusal, FireRefusal::COOLING_DOWN)
+      << "a transmitted burst counts even when the device refused it";
+  EXPECT_EQ(link.fire_commands().size(), 1U);
+
+  // Past the cool-down, over a link that is reporting OK again.
+  clock.advance_by(configuration.safety.cool_down);
+  const FrameOutcome after_cool_down = run_to_first_burst(loop);
+  EXPECT_TRUE(after_cool_down.fire_command_sent)
+      << "an earlier rejection is not a standing refusal: the link now reports OK";
+  EXPECT_EQ(link.fire_commands().size(), 2U);
+}
+
 // Verifies: REQ-COM-002 — "with a simulated link that fails after locking, no
 // fire command is emitted and the final state is SEARCHING".
 TEST(EngagementScenario, ALinkThatFailsAfterLockingFiresNothing) {
@@ -302,21 +397,64 @@ TEST(EngagementScenario, AMultiBirdFrameProducesExactlyOneEngagement) {
   }
 }
 
-// Verifies: REQ-SAF-004, REQ-AIM-002, REQ-DEV-001 — an unconfigured
-// installation is inert: it associates nothing, confirms nothing, and commands
-// neither the servos nor the valve, however many pigeons it sees.
+// Verifies: REQ-SAF-004, REQ-AIM-002, REQ-DEV-001, REQ-TRK-007 — an
+// unconfigured installation is inert: it commands neither the servos nor the
+// valve, however many pigeons it sees.
+//
+// The bird drifts by a fraction of a pixel per frame, as a real one does, so
+// the uncalibrated zero association radius confirms nothing (`REQ-TRK-007`,
+// track.hpp). The stationary case is covered separately below, because under
+// the inclusive radius a perfectly motionless centroid *does* associate at a
+// radius of zero — and the rig must still command nothing.
 TEST(EngagementScenario, AnUnconfiguredRigCommandsNothingAtAll) {
   ManualClock clock;
   SimulatedActuatorLink link{clock};
   EngagementLoop loop{Configuration{}, clock, link, test_image_size};
 
   for (int frame = 0; frame < 10; ++frame) {
-    const FrameOutcome outcome = loop.process(bird_frame());
-    EXPECT_EQ(outcome.state_after, TargetState::SEARCHING);
+    const double drift = 0.25 * static_cast<double>(frame);
+    const FrameOutcome outcome =
+        loop.process(DetectionOutcome::found({detection_at(320.0 + drift, 200.0, 60.0, 40.0)}));
+    EXPECT_EQ(outcome.state_after, TargetState::SEARCHING)
+        << "an uncalibrated radius confirms nothing as soon as the bird moves";
     EXPECT_FALSE(outcome.aiming_command_sent);
     EXPECT_FALSE(outcome.fire_command_sent);
   }
 
+  EXPECT_TRUE(link.aiming_commands().empty());
+  EXPECT_TRUE(link.fire_commands().empty());
+  EXPECT_FALSE(link.water_active());
+}
+
+// Verifies: REQ-SAF-004, REQ-AIM-002 — "a default-constructed Configuration
+// yields a policy that refuses every burst", asserted for the case that does
+// reach a lock.
+//
+// A perfectly motionless centroid associates even at a zero radius, because the
+// radius is inclusive (`REQ-TRK-007`, Q17), so an unconfigured rig watching a
+// synthetic stationary bird really can reach `TARGET_LOCKED`. Inertness must
+// therefore rest on the empty envelope rather than on nothing ever confirming:
+// the rig may decide it wants to act and must still command nothing at all.
+TEST(EngagementScenario, AnUnconfiguredRigCommandsNothingEvenWhenItLocksOn) {
+  ManualClock clock;
+  SimulatedActuatorLink link{clock};
+  EngagementLoop loop{Configuration{}, clock, link, test_image_size};
+
+  bool wanted_to_act = false;
+  for (int frame = 0; frame < 10; ++frame) {
+    const FrameOutcome outcome = loop.process(bird_frame());
+    if (outcome.intent == EngagementIntent::AIM_AT_TARGET ||
+        outcome.intent == EngagementIntent::FIRE_AT_TARGET) {
+      wanted_to_act = true;
+    }
+    EXPECT_FALSE(outcome.aiming_command_sent);
+    EXPECT_FALSE(outcome.fire_command_sent);
+  }
+
+  // Anti-vacuity: if the machine never wanted to act, this proves nothing about
+  // an unconfigured rig refusing to act.
+  EXPECT_TRUE(wanted_to_act)
+      << "a stationary bird at an inclusive zero radius should still reach an acting intent";
   EXPECT_TRUE(link.aiming_commands().empty());
   EXPECT_TRUE(link.fire_commands().empty());
   EXPECT_FALSE(link.water_active());

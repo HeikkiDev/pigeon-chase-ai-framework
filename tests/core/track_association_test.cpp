@@ -20,7 +20,9 @@ namespace {
 using pigeon::core::associate_detections;
 using pigeon::core::Detection;
 using pigeon::core::DetectionOutcome;
+using pigeon::core::distance_between;
 using pigeon::core::PixelDistance;
+using pigeon::core::PixelPoint;
 using pigeon::core::Track;
 using pigeon::core::TrackId;
 using pigeon::core::TrackUpdate;
@@ -58,44 +60,102 @@ TEST(Association, TwoDetectionsWithinTheRadiusProduceOneTrackWithCountTwo) {
       << "the track must carry its most recent position, which is what aiming uses";
 }
 
-// Verifies: REQ-TRK-007 — "two detections in successive frames beyond the
-// association radius produce two tracks, each with a count of one".
+// Verifies: REQ-TRK-007 — "a detection in the following frame that lies beyond
+// the association radius from every existing track starts a **new** track with
+// a count of one, while the track it failed to match is discarded because it
+// received no detection (REQ-TRK-009)".
 //
-// The two tracks exist across the run rather than simultaneously: the first is
-// discarded the moment it misses a frame (`REQ-TRK-009`, ADR-0010). The
-// observable consequence — a second, distinct track that starts again at one,
-// so nothing is ever confirmed by two different birds — is what is asserted.
-TEST(Association, TwoDetectionsBeyondTheRadiusProduceTwoDistinctTracksEachStartingAtOne) {
+// This is the bullet as reworded by correction C1. The two tracks exist across
+// the run rather than simultaneously, so the discard is asserted directly: the
+// earlier identifier is gone from the set, not merely outnumbered by a newer
+// one.
+TEST(Association, ADetectionBeyondTheRadiusStartsANewTrackAndTheOldOneIsDiscarded) {
   const TrackUpdate first =
       associate_detections({}, frame_with({detection_at(100.0, 100.0)}), radius, first_id);
+  ASSERT_EQ(first.tracks.size(), 1U);
+  const TrackId abandoned_id = first.tracks.at(0).id;
+
   const TrackUpdate second = associate_detections(
       first.tracks, frame_with({detection_at(300.0, 100.0)}), radius, first.next_id);
 
-  ASSERT_EQ(second.tracks.size(), 1U);
-  EXPECT_NE(second.tracks.at(0).id, first.tracks.at(0).id)
+  ASSERT_EQ(second.tracks.size(), 1U) << "the unmatched track must not survive the frame";
+  EXPECT_NE(second.tracks.at(0).id, abandoned_id)
       << "a detection outside the radius is a different bird and must not inherit a count";
   EXPECT_EQ(second.tracks.at(0).consecutive_detections, 1U);
+  EXPECT_TRUE(std::ranges::none_of(
+      second.tracks, [abandoned_id](const Track& track) { return track.id == abandoned_id; }))
+      << "the track that received no detection is discarded (REQ-TRK-009)";
 }
 
-// Verifies: REQ-TRK-007 — just inside the radius associates, just outside does
-// not. The exact-equality boundary is deliberately not asserted: neither the
-// requirement nor `track.hpp` says whether "within" includes the radius
-// itself, and choosing is the architect's call, not the test's.
-TEST(Association, AssociatesJustInsideTheRadiusAndNotJustOutside) {
+// Verifies: REQ-TRK-007 — "a detection whose centroid lies at **exactly** the
+// association radius from an existing track's centroid joins that track,
+// raising its count to two; one a fraction of a pixel further away does not".
+//
+// The radius is inclusive: the test is `distance <= association_radius`
+// (track.hpp, Q17). This lands *on* the boundary rather than straddling it,
+// because a `<` written where `<=` was meant is invisible to any pair of
+// samples that brackets the value without touching it.
+//
+// Both offsets are checked against `distance_between` before they are used, so
+// the test cannot pass by accident on a distance that is not the one it claims
+// to be exercising. 30 px along a single axis is exactly representable and
+// `sqrt(900.0)` is exactly 30.0, so "exactly the radius" really is exact here.
+TEST(Association, AssociatesAtExactlyTheRadiusAndNotABitBeyondIt) {
+  constexpr double origin_x = 100.0;
+  constexpr double origin_y = 100.0;
+  const PixelPoint centroid{.x_px = origin_x, .y_px = origin_y};
+
+  const PixelPoint on_boundary{.x_px = origin_x + radius.pixels, .y_px = origin_y};
+  const PixelPoint just_beyond{.x_px = origin_x + radius.pixels + 1e-9, .y_px = origin_y};
+
+  // Anti-vacuity: prove the fixtures sit where the test says they sit.
+  ASSERT_DOUBLE_EQ(distance_between(centroid, on_boundary).pixels, radius.pixels)
+      << "the boundary fixture must be exactly the radius away, or this test proves nothing";
+  ASSERT_GT(distance_between(centroid, just_beyond).pixels, radius.pixels)
+      << "the outside fixture must really be outside";
+
   const TrackUpdate first =
-      associate_detections({}, frame_with({detection_at(100.0, 100.0)}), radius, first_id);
+      associate_detections({}, frame_with({detection_at(origin_x, origin_y)}), radius, first_id);
+  ASSERT_EQ(first.tracks.size(), 1U);
 
-  const TrackUpdate just_inside = associate_detections(
-      first.tracks, frame_with({detection_at(100.0 + radius.pixels - 0.5, 100.0)}), radius,
+  const TrackUpdate at_boundary = associate_detections(
+      first.tracks, frame_with({detection_at(on_boundary.x_px, on_boundary.y_px)}), radius,
       first.next_id);
-  const TrackUpdate just_outside = associate_detections(
-      first.tracks, frame_with({detection_at(100.0 + radius.pixels + 0.5, 100.0)}), radius,
-      first.next_id);
+  ASSERT_EQ(at_boundary.tracks.size(), 1U);
+  EXPECT_EQ(at_boundary.tracks.at(0).id, first.tracks.at(0).id)
+      << "the boundary belongs to the track: a centroid exactly the radius away associates";
+  EXPECT_EQ(at_boundary.tracks.at(0).consecutive_detections, 2U)
+      << "exactly the association radius must raise the count to two, not start a new track";
 
-  ASSERT_EQ(just_inside.tracks.size(), 1U);
-  EXPECT_EQ(just_inside.tracks.at(0).consecutive_detections, 2U);
-  ASSERT_EQ(just_outside.tracks.size(), 1U);
-  EXPECT_EQ(just_outside.tracks.at(0).consecutive_detections, 1U);
+  const TrackUpdate beyond_boundary = associate_detections(
+      first.tracks, frame_with({detection_at(just_beyond.x_px, just_beyond.y_px)}), radius,
+      first.next_id);
+  ASSERT_EQ(beyond_boundary.tracks.size(), 1U);
+  EXPECT_NE(beyond_boundary.tracks.at(0).id, first.tracks.at(0).id)
+      << "a fraction of a pixel beyond the radius is a different bird";
+  EXPECT_EQ(beyond_boundary.tracks.at(0).consecutive_detections, 1U);
+}
+
+// Verifies: REQ-TRK-007 — the same inclusive rule, read at the degenerate end
+// of its range. A zero radius admits exactly one distance, zero, and admits it
+// (`distance <= radius`), which is what "matches nothing but a detection
+// exactly on a track's centroid" in track.hpp means.
+//
+// Asserted so that a zero radius is not implemented as a special case that
+// short-circuits the comparison: the rule is one comparison, everywhere.
+TEST(Association, AZeroRadiusStillAssociatesADetectionExactlyOnTheCentroid) {
+  constexpr PixelDistance zero_radius{0.0};
+  const TrackUpdate first =
+      associate_detections({}, frame_with({detection_at(100.0, 100.0)}), zero_radius, first_id);
+  ASSERT_EQ(first.tracks.size(), 1U);
+
+  const TrackUpdate second = associate_detections(
+      first.tracks, frame_with({detection_at(100.0, 100.0)}), zero_radius, first.next_id);
+
+  ASSERT_EQ(second.tracks.size(), 1U);
+  EXPECT_EQ(second.tracks.at(0).id, first.tracks.at(0).id);
+  EXPECT_EQ(second.tracks.at(0).consecutive_detections, 2U)
+      << "distance 0 <= radius 0: the inclusive rule holds at the degenerate boundary too";
 }
 
 // Verifies: REQ-TRK-007 — "each detection joins the **nearest** existing track
@@ -177,14 +237,21 @@ TEST(Association, EveryTrackInTheSetHasBeenDetectedInTheFrameJustProcessed) {
 }
 
 // Verifies: REQ-SAF-004, REQ-TRK-007 — "a zero association_radius matches
-// nothing, so every detection starts a new track and nothing is ever
-// confirmed" (track.hpp): the inert behaviour of an uncalibrated rig.
-TEST(Association, AZeroRadiusAssociatesNothing) {
+// nothing but a detection exactly on a track's centroid, which no real
+// detector produces twice, so the default of an uncalibrated configuration
+// starts a new track for every detection and confirms nothing" (track.hpp):
+// the inert behaviour of an uncalibrated rig.
+//
+// The bird therefore moves by a fraction of a pixel between frames, as a real
+// one does. The exactly-stationary case is the boundary and is asserted
+// separately, above, because under the inclusive rule it associates.
+TEST(Association, AZeroRadiusAssociatesNothingAsSoonAsTheBirdMoves) {
   TrackUpdate update;
   update.next_id = first_id;
 
   for (int frame = 0; frame < 5; ++frame) {
-    update = associate_detections(update.tracks, frame_with({detection_at(100.0, 100.0)}),
+    const double drift = 0.25 * static_cast<double>(frame);
+    update = associate_detections(update.tracks, frame_with({detection_at(100.0 + drift, 100.0)}),
                                   PixelDistance{0.0}, update.next_id);
     ASSERT_EQ(update.tracks.size(), 1U);
     EXPECT_EQ(update.tracks.at(0).consecutive_detections, 1U)
