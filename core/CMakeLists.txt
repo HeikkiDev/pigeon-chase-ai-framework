@@ -1,4 +1,5 @@
 add_library(pigeon_core
+  src/aiming.cpp
   src/build_info.cpp
   src/detection.cpp
   src/geometry.cpp
