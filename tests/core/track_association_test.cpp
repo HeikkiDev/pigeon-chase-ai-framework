@@ -54,7 +54,8 @@ TEST(Association, TwoDetectionsWithinTheRadiusProduceOneTrackWithCountTwo) {
       first.tracks, frame_with({detection_at(110.0, 100.0)}), radius, first.next_id);
 
   ASSERT_EQ(second.tracks.size(), 1U);
-  EXPECT_EQ(second.tracks.at(0).id, first.tracks.at(0).id) << "the same bird must keep its identity";
+  EXPECT_EQ(second.tracks.at(0).id, first.tracks.at(0).id)
+      << "the same bird must keep its identity";
   EXPECT_EQ(second.tracks.at(0).consecutive_detections, 2U);
   EXPECT_EQ(second.tracks.at(0).latest, detection_at(110.0, 100.0))
       << "the track must carry its most recent position, which is what aiming uses";
@@ -82,9 +83,9 @@ TEST(Association, ADetectionBeyondTheRadiusStartsANewTrackAndTheOldOneIsDiscarde
   EXPECT_NE(second.tracks.at(0).id, abandoned_id)
       << "a detection outside the radius is a different bird and must not inherit a count";
   EXPECT_EQ(second.tracks.at(0).consecutive_detections, 1U);
-  EXPECT_TRUE(std::ranges::none_of(
-      second.tracks, [abandoned_id](const Track& track) { return track.id == abandoned_id; }))
-      << "the track that received no detection is discarded (REQ-TRK-009)";
+  EXPECT_TRUE(std::ranges::none_of(second.tracks, [abandoned_id](const Track& track) {
+    return track.id == abandoned_id;
+  })) << "the track that received no detection is discarded (REQ-TRK-009)";
 }
 
 // Verifies: REQ-TRK-007 — "a detection whose centroid lies at **exactly** the
@@ -165,9 +166,8 @@ TEST(Association, ADetectionJoinsTheNearestTrackInRange) {
       {}, frame_with({detection_at(100.0, 100.0), detection_at(120.0, 100.0)}), radius, first_id);
   ASSERT_EQ(seed.tracks.size(), 2U);
 
-  const auto nearer = std::ranges::find_if(seed.tracks, [](const Track& track) {
-    return track.latest.centroid_px.x_px == 120.0;
-  });
+  const auto nearer = std::ranges::find_if(
+      seed.tracks, [](const Track& track) { return track.latest.centroid_px.x_px == 120.0; });
   ASSERT_NE(nearer, seed.tracks.end());
   const TrackId expected_id = nearer->id;
 
@@ -197,9 +197,8 @@ TEST(Association, ANoneFrameEmptiesTheTrackSet) {
 TEST(Association, ATrackAbsentForOneFrameRestartsAtOne) {
   const TrackUpdate first =
       associate_detections({}, frame_with({detection_at(100.0, 100.0)}), radius, first_id);
-  const TrackUpdate second =
-      associate_detections(first.tracks, frame_with({detection_at(105.0, 100.0)}), radius,
-                           first.next_id);
+  const TrackUpdate second = associate_detections(
+      first.tracks, frame_with({detection_at(105.0, 100.0)}), radius, first.next_id);
   ASSERT_EQ(second.tracks.at(0).consecutive_detections, 2U);
 
   const TrackUpdate missed =
@@ -269,9 +268,9 @@ TEST(Association, AZeroRadiusAssociatesNothingAsSoonAsTheBirdMoves) {
 // the case set is the same on every run.
 TEST(Association, IsIndependentOfTheOrderTheDetectorReportsDetectionsIn) {
   constexpr std::uint_fast32_t seed = 20260916;
-  const std::vector<Detection> detections{
-      detection_at(50.0, 50.0), detection_at(300.0, 120.0), detection_at(80.0, 400.0),
-      detection_at(500.0, 300.0), detection_at(55.0, 240.0)};
+  const std::vector<Detection> detections{detection_at(50.0, 50.0), detection_at(300.0, 120.0),
+                                          detection_at(80.0, 400.0), detection_at(500.0, 300.0),
+                                          detection_at(55.0, 240.0)};
 
   const TrackUpdate reference = associate_detections({}, frame_with(detections), radius, first_id);
 

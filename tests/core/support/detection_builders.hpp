@@ -17,17 +17,15 @@ namespace pigeon::test_support {
 /// `REQ-TRK-007` associates on the centroid while `REQ-TRK-008` orders on the
 /// box, and a scenario in which those two disagree tests nothing anybody
 /// meant.
-[[nodiscard]] constexpr pigeon::core::Detection detection_at(double centre_x_px,
-                                                             double centre_y_px,
+[[nodiscard]] constexpr pigeon::core::Detection detection_at(double centre_x_px, double centre_y_px,
                                                              double width_px = 10.0,
                                                              double height_px = 10.0) {
   return pigeon::core::Detection{
       .centroid_px = pigeon::core::PixelPoint{centre_x_px, centre_y_px},
       .bounding_box_px =
           pigeon::core::BoundingBox{
-              .top_left_px =
-                  pigeon::core::PixelPoint{centre_x_px - (width_px / 2.0),
-                                           centre_y_px - (height_px / 2.0)},
+              .top_left_px = pigeon::core::PixelPoint{centre_x_px - (width_px / 2.0),
+                                                      centre_y_px - (height_px / 2.0)},
               .width_px = width_px,
               .height_px = height_px,
           },

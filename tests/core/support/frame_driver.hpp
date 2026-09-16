@@ -32,9 +32,9 @@ class TrackingDriver {
   pigeon::core::TargetTransition step(const pigeon::core::DetectionOutcome& outcome) {
     pigeon::core::TrackUpdate update = pigeon::core::associate_detections(
         state_.tracks, outcome, association_radius_, state_.next_id);
-    const pigeon::core::FrameInput input =
-        update.tracks.empty() ? pigeon::core::FrameInput::none()
-                              : pigeon::core::FrameInput::found(std::move(update));
+    const pigeon::core::FrameInput input = update.tracks.empty()
+                                               ? pigeon::core::FrameInput::none()
+                                               : pigeon::core::FrameInput::found(std::move(update));
     pigeon::core::TargetTransition transition = pigeon::core::advance(state_, input);
     state_ = transition.next;
     return transition;

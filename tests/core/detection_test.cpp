@@ -173,9 +173,7 @@ TEST(SimulatedDetector, IsDeterministicForTheSameFrame) {
 
 // Verifies: REQ-DET-004 — three 8-bit channels per pixel, declared once and
 // not configurable.
-TEST(FrameFormat, IsThreeBytesPerPixel) {
-  EXPECT_EQ(pigeon::core::bytes_per_pixel, 3U);
-}
+TEST(FrameFormat, IsThreeBytesPerPixel) { EXPECT_EQ(pigeon::core::bytes_per_pixel, 3U); }
 
 // Verifies: REQ-DET-004 — "the frame type carries width, height and stride,
 // and the buffer it views is at least stride × height bytes".
@@ -199,18 +197,16 @@ TEST(FrameFormat, PixelAtXYBeginsAtYTimesStridePlusXTimesThree) {
 
   for (std::uint32_t y_px = 0; y_px < frame.size.height_px; ++y_px) {
     for (std::uint32_t x_px = 0; x_px < frame.size.width_px; ++x_px) {
-      const std::size_t offset =
-          (static_cast<std::size_t>(y_px) * frame.stride_bytes) +
-          (static_cast<std::size_t>(x_px) * pigeon::core::bytes_per_pixel);
-      const bool inside_blob =
-          x_px >= pigeon::test_fixtures::pigeon_blob.x0_px &&
-          x_px < pigeon::test_fixtures::pigeon_blob.x0_px +
-                     pigeon::test_fixtures::pigeon_blob.width_px &&
-          y_px >= pigeon::test_fixtures::pigeon_blob.y0_px &&
-          y_px < pigeon::test_fixtures::pigeon_blob.y0_px +
-                     pigeon::test_fixtures::pigeon_blob.height_px;
-      const std::uint8_t expected =
-          inside_blob ? pigeon::test_fixtures::pigeon_level : pigeon::test_fixtures::background_level;
+      const std::size_t offset = (static_cast<std::size_t>(y_px) * frame.stride_bytes) +
+                                 (static_cast<std::size_t>(x_px) * pigeon::core::bytes_per_pixel);
+      const bool inside_blob = x_px >= pigeon::test_fixtures::pigeon_blob.x0_px &&
+                               x_px < pigeon::test_fixtures::pigeon_blob.x0_px +
+                                          pigeon::test_fixtures::pigeon_blob.width_px &&
+                               y_px >= pigeon::test_fixtures::pigeon_blob.y0_px &&
+                               y_px < pigeon::test_fixtures::pigeon_blob.y0_px +
+                                          pigeon::test_fixtures::pigeon_blob.height_px;
+      const std::uint8_t expected = inside_blob ? pigeon::test_fixtures::pigeon_level
+                                                : pigeon::test_fixtures::background_level;
 
       for (std::size_t channel = 0; channel < pigeon::core::bytes_per_pixel; ++channel) {
         ASSERT_EQ(std::to_integer<std::uint8_t>(frame.pixels[offset + channel]), expected)

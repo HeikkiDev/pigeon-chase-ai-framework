@@ -30,12 +30,10 @@ inline constexpr double test_association_radius_px = 30.0;
 /// X ∈ [−90°, +90°], Y ∈ [0°, +45°], Y = 0° being the horizon (`REQ-AIM-002`).
 [[nodiscard]] inline pigeon::core::MechanicalEnvelope deployment_envelope() {
   pigeon::core::MechanicalEnvelope envelope;
-  envelope.x = pigeon::core::AngleRange::inclusive(
-      pigeon::core::AngleRange::ClosedInterval{.minimum = pigeon::core::Angle{-90.0},
-                                               .maximum = pigeon::core::Angle{90.0}});
-  envelope.y = pigeon::core::AngleRange::inclusive(
-      pigeon::core::AngleRange::ClosedInterval{.minimum = pigeon::core::Angle{0.0},
-                                               .maximum = pigeon::core::Angle{45.0}});
+  envelope.x = pigeon::core::AngleRange::inclusive(pigeon::core::AngleRange::ClosedInterval{
+      .minimum = pigeon::core::Angle{-90.0}, .maximum = pigeon::core::Angle{90.0}});
+  envelope.y = pigeon::core::AngleRange::inclusive(pigeon::core::AngleRange::ClosedInterval{
+      .minimum = pigeon::core::Angle{0.0}, .maximum = pigeon::core::Angle{45.0}});
   return envelope;
 }
 

@@ -179,8 +179,8 @@ TEST(TargetStateMachine, ThreeUnassociableDetectionsDoNotConfirm) {
 // confirmation threshold never locks, whatever else is in the frame.
 TEST(TargetStateMachine, DoesNotLockOnACountBelowTheThreshold) {
   for (std::uint32_t count = 1; count < confirmation_frame_count; ++count) {
-    const TargetTransition transition =
-        advance(TargetMachineState{}, found_with({track_with(1, detection_at(100.0, 100.0), count)}));
+    const TargetTransition transition = advance(
+        TargetMachineState{}, found_with({track_with(1, detection_at(100.0, 100.0), count)}));
 
     EXPECT_EQ(transition.next.state, TargetState::SEARCHING) << "count " << count;
     EXPECT_EQ(transition.intent, EngagementIntent::KEEP_SEARCHING) << "count " << count;
@@ -267,8 +267,10 @@ TEST(TargetStateMachine, IsAPureFunctionOfStateAndFrame) {
   const Track engaged = track_with(2, detection_at(300.0, 200.0), 3);
   const TargetMachineState state = locked_on(engaged);
 
-  const TargetTransition first = advance(state, found_with({track_with(2, detection_at(301.0, 201.0), 4)}));
-  const TargetTransition second = advance(state, found_with({track_with(2, detection_at(301.0, 201.0), 4)}));
+  const TargetTransition first =
+      advance(state, found_with({track_with(2, detection_at(301.0, 201.0), 4)}));
+  const TargetTransition second =
+      advance(state, found_with({track_with(2, detection_at(301.0, 201.0), 4)}));
 
   EXPECT_EQ(first, second);
 }
@@ -397,7 +399,8 @@ TEST(TargetStateMachine, AbandoningAnEngagementReturnsToSearchingAndRetiresTheTr
   const Track engaged = track_with(2, detection_at(300.0, 200.0), 4);
   const Track bystander = track_with(7, detection_at(80.0, 400.0), 2);
 
-  const TargetMachineState after = pigeon::core::abandon_engagement(locked_on(engaged, {engaged, bystander}));
+  const TargetMachineState after =
+      pigeon::core::abandon_engagement(locked_on(engaged, {engaged, bystander}));
 
   EXPECT_EQ(after.state, TargetState::SEARCHING);
   EXPECT_FALSE(after.engaged_track.has_value());

@@ -146,12 +146,12 @@ TEST(Aiming, TakesNoRangeDepthOrScaleTerm) {
 TEST(Aiming, YieldsNothingForADegenerateImageSize) {
   const CameraCalibration calibration = test_camera();
 
-  EXPECT_FALSE(aim_at_centroid(PixelPoint{1.0, 1.0}, ImageSize{.width_px = 0, .height_px = 480},
-                               calibration)
-                   .has_value());
-  EXPECT_FALSE(aim_at_centroid(PixelPoint{1.0, 1.0}, ImageSize{.width_px = 640, .height_px = 0},
-                               calibration)
-                   .has_value());
+  EXPECT_FALSE(
+      aim_at_centroid(PixelPoint{1.0, 1.0}, ImageSize{.width_px = 0, .height_px = 480}, calibration)
+          .has_value());
+  EXPECT_FALSE(
+      aim_at_centroid(PixelPoint{1.0, 1.0}, ImageSize{.width_px = 640, .height_px = 0}, calibration)
+          .has_value());
   EXPECT_FALSE(aim_at_centroid(PixelPoint{1.0, 1.0}, ImageSize{}, calibration).has_value());
 }
 
@@ -286,9 +286,8 @@ TEST(EnvelopeClamp, NeverCommandsAnElevationBelowTheHorizon) {
 
       const std::optional<ServoAngles> clamped = clamp_to_envelope(*computed, envelope);
       ASSERT_TRUE(clamped.has_value());
-      EXPECT_GE(clamped->y.degrees, 0.0)
-          << "centroid (" << centroid.x_px << ", " << centroid.y_px
-          << ") produced an elevation below the horizon";
+      EXPECT_GE(clamped->y.degrees, 0.0) << "centroid (" << centroid.x_px << ", " << centroid.y_px
+                                         << ") produced an elevation below the horizon";
       EXPECT_LE(clamped->y.degrees, 45.0);
       EXPECT_GE(clamped->x.degrees, -90.0);
       EXPECT_LE(clamped->x.degrees, 90.0);

@@ -279,8 +279,7 @@ TEST(EngagementScenario, NoLinkFaultProducesAFireCommand) {
     ASSERT_TRUE(verification.refusal.has_value())
         << "status " << static_cast<int>(status) << ": a refusal must name its reason";
     EXPECT_EQ(*verification.refusal, *pigeon::core::refusal_for(status))
-        << "status " << static_cast<int>(status)
-        << " refused for a reason other than its own";
+        << "status " << static_cast<int>(status) << " refused for a reason other than its own";
     ++faults_exercised;
   }
 
@@ -514,15 +513,14 @@ TEST(EngagementScenario, ReplayingTheSameScenarioProducesIdenticalCommands) {
       bird_frame(),
       DetectionOutcome::none(),
       bird_frame(),
-      DetectionOutcome::found({detection_at(320.0, 200.0, 60.0, 40.0),
-                               detection_at(100.0, 100.0, 10.0, 10.0)}),
+      DetectionOutcome::found(
+          {detection_at(320.0, 200.0, 60.0, 40.0), detection_at(100.0, 100.0, 10.0, 10.0)}),
       bird_frame(),
       bird_frame(),
       bird_frame(),
   };
 
-  const auto replay = [&script](std::vector<TargetState>& states,
-                                std::vector<bool>& fired) {
+  const auto replay = [&script](std::vector<TargetState>& states, std::vector<bool>& fired) {
     ManualClock clock;
     SimulatedActuatorLink link{clock};
     EngagementLoop loop{calibrated_configuration(), clock, link, test_image_size};

@@ -205,8 +205,7 @@ TEST(TargetStateMachineExhaustively, HasNoReachablePathToAFireCommandThatSkipsCo
       // REQ-TRK-002, REQ-TRK-008: locking requires a confirmed track in this
       // frame, and the engaged track is the one selection chooses.
       if (transition.next.state == TargetState::TARGET_LOCKED) {
-        ASSERT_TRUE(transition.next.engaged_track.has_value())
-            << context << ": locked on nothing";
+        ASSERT_TRUE(transition.next.engaged_track.has_value()) << context << ": locked on nothing";
         const std::optional<Track> expected = select_confirmed_target(input.detected_tracks());
         ASSERT_TRUE(expected.has_value())
             << context << ": locked although no track in the frame was confirmed";
@@ -326,7 +325,7 @@ TEST(TargetStateMachineExhaustively, NeverFiresWithoutFourConsecutiveFramesOfThe
       ASSERT_TRUE(transition.aim_at.has_value()) << describe(sequence);
       const std::uint32_t bird =
           transition.aim_at->centroid_px == position_of(first_bird).centroid_px ? first_bird
-                                                                               : second_bird;
+                                                                                : second_bird;
 
       ASSERT_GE(index, confirmation_frame_count)
           << describe(sequence) << ": fired at frame " << index

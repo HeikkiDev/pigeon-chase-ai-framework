@@ -73,9 +73,9 @@ class EngagementLoop {
 
     pigeon::core::TrackUpdate update = pigeon::core::associate_detections(
         state_.tracks, outcome, configuration_.association_radius, state_.next_id);
-    const pigeon::core::FrameInput input =
-        update.tracks.empty() ? pigeon::core::FrameInput::none()
-                              : pigeon::core::FrameInput::found(std::move(update));
+    const pigeon::core::FrameInput input = update.tracks.empty()
+                                               ? pigeon::core::FrameInput::none()
+                                               : pigeon::core::FrameInput::found(std::move(update));
 
     const pigeon::core::TargetTransition transition = pigeon::core::advance(state_, input);
     result.intent = transition.intent;
@@ -103,8 +103,7 @@ class EngagementLoop {
  private:
   [[nodiscard]] std::optional<pigeon::core::ServoAngles> angles_for(
       const pigeon::core::Detection& detection) const {
-    return pigeon::core::aim_at_centroid(detection.centroid_px, image_size_,
-                                         configuration_.camera);
+    return pigeon::core::aim_at_centroid(detection.centroid_px, image_size_, configuration_.camera);
   }
 
   void aim(const pigeon::core::TargetTransition& transition, FrameOutcome& result) {
@@ -135,8 +134,8 @@ class EngagementLoop {
     // The link is asked, not told: the policy reads `health()` itself, at this
     // instant, and there is no status this loop could supply instead
     // (`REQ-COM-003`, `REQ-SAF-008`).
-    const pigeon::core::FireAuthorisation authorisation = policy_.authorise_fire(
-        transition, angles.value_or(pigeon::core::ServoAngles{}), *link_);
+    const pigeon::core::FireAuthorisation authorisation =
+        policy_.authorise_fire(transition, angles.value_or(pigeon::core::ServoAngles{}), *link_);
 
     if (!authorisation.granted().has_value()) {
       // Refused before transmission: no command, and nothing to record

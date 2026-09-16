@@ -75,8 +75,9 @@ TEST(DefaultConfiguration, ConfiguresNoExclusionZone) {
 // has no room for a second zone, so no undocumented behaviour is needed for a
 // case that cannot be expressed.
 TEST(DefaultConfiguration, CannotRepresentMoreThanOneExclusionZone) {
-  static_assert(std::is_same_v<decltype(SafetyLimits::exclusion_zone), std::optional<ExclusionZone>>,
-                "an installation configures at most one exclusion zone (REQ-SAF-006)");
+  static_assert(
+      std::is_same_v<decltype(SafetyLimits::exclusion_zone), std::optional<ExclusionZone>>,
+      "an installation configures at most one exclusion zone (REQ-SAF-006)");
   SUCCEED();
 }
 

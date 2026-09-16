@@ -53,8 +53,7 @@ TEST(BoundingBoxArea, DoesNotDependOnPosition) {
 // Verifies: REQ-TRK-007 — the association metric is centroid-to-centroid
 // distance in the image plane.
 TEST(CentroidDistance, IsTheEuclideanDistanceInPixels) {
-  const PixelDistance distance =
-      distance_between(PixelPoint{0.0, 0.0}, PixelPoint{3.0, 4.0});
+  const PixelDistance distance = distance_between(PixelPoint{0.0, 0.0}, PixelPoint{3.0, 4.0});
 
   EXPECT_DOUBLE_EQ(distance.pixels, 5.0);
 }
@@ -71,8 +70,7 @@ TEST(CentroidDistance, IsSymmetric) {
 // Verifies: REQ-TRK-007 — a track associates with a detection at its own
 // centroid at distance zero, the nearest possible match.
 TEST(CentroidDistance, IsZeroForCoincidentPoints) {
-  const PixelDistance distance =
-      distance_between(PixelPoint{7.5, 7.5}, PixelPoint{7.5, 7.5});
+  const PixelDistance distance = distance_between(PixelPoint{7.5, 7.5}, PixelPoint{7.5, 7.5});
 
   EXPECT_DOUBLE_EQ(distance.pixels, 0.0);
 }
@@ -82,8 +80,7 @@ TEST(CentroidDistance, IsZeroForCoincidentPoints) {
 TEST(CentroidDistance, IsNeverNegative) {
   for (double dx : {-10.0, -1.0, 0.0, 1.0, 10.0}) {
     for (double dy : {-10.0, -1.0, 0.0, 1.0, 10.0}) {
-      const PixelDistance distance =
-          distance_between(PixelPoint{0.0, 0.0}, PixelPoint{dx, dy});
+      const PixelDistance distance = distance_between(PixelPoint{0.0, 0.0}, PixelPoint{dx, dy});
       EXPECT_GE(distance.pixels, 0.0) << "distance from (0,0) to (" << dx << "," << dy << ")";
     }
   }

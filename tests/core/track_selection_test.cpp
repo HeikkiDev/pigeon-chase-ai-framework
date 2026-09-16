@@ -38,7 +38,8 @@ TEST(Confirmation, RequiresThreeConsecutiveDetectionsOfOneTrack) {
 // Verifies: REQ-TRK-002 — a track detected more than three times stays
 // confirmed; the rule is a floor, not an equality.
 TEST(Confirmation, HoldsBeyondTheThirdConsecutiveDetection) {
-  for (std::uint32_t count = confirmation_frame_count; count < confirmation_frame_count + 5; ++count) {
+  for (std::uint32_t count = confirmation_frame_count; count < confirmation_frame_count + 5;
+       ++count) {
     EXPECT_TRUE(is_confirmed(track_with(0, detection_at(10.0, 10.0), count)))
         << "count " << count << " should remain confirmed";
   }
@@ -82,9 +83,9 @@ TEST(TargetSelection, SelectsExactlyOneOfThreeConfirmableTracks) {
   const std::optional<Track> selected = select_confirmed_target(tracks);
 
   ASSERT_TRUE(selected.has_value());
-  EXPECT_EQ(std::ranges::count_if(tracks,
-                                  [&selected](const Track& track) { return track == *selected; }),
-            1)
+  EXPECT_EQ(
+      std::ranges::count_if(tracks, [&selected](const Track& track) { return track == *selected; }),
+      1)
       << "the selected track must be one of the candidates, and only one";
 }
 
