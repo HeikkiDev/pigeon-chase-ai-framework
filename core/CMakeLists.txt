@@ -1,5 +1,7 @@
 add_library(pigeon_core
   src/build_info.cpp
+  src/detection.cpp
+  src/geometry.cpp
   # Compiles every public header, so an interface-only change is still checked
   # by the compiler and by clang-tidy. See the comment in the file.
   src/public_headers.cpp
