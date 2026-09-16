@@ -11,6 +11,7 @@ set(pigeon_gate_tests
   arch_check_test.sh
   trace_test.sh
   tdd_check_test.sh
+  header_check_test.sh
 )
 
 foreach(script IN LISTS pigeon_gate_tests)

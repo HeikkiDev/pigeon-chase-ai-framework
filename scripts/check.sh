@@ -131,6 +131,7 @@ fi
 # architectural defect, so it fails the build rather than being a review note.
 if [[ "$SKIP_ARCH" == "0" ]]; then
   scripts/arch-check.sh || fail "architectural rules violated"
+  scripts/header-check.sh || fail "a public header is not self-contained"
 else
   warn "architectural rule check skipped"
 fi
