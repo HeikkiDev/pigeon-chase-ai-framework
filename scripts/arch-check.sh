@@ -87,6 +87,52 @@ scan() {
   done < <(sources_in "$dir")
 }
 
+# The refusal mapping must keep -Wswitch armed (ADR-0015, REQ-SAF-008).
+#
+# Every LinkStatus has to carry its own refusal reason. Nothing in the language
+# guarantees that except -Wswitch, which warns about an unhandled enumerator
+# only while the switch has no `default:` label. Adding one is a single word, is
+# easy to justify to yourself as defensive, and silently disarms the only
+# mechanism that would notice a status added later. It is invisible in review
+# precisely because it looks careful, so the gate has to see it.
+#
+# Scoped to the body of refusal_for: this bans defeating the exhaustiveness
+# check in the one function that depends on it, not the keyword in general.
+check_refusal_switch() {
+  local file line
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      report "default: in refusal_for defeats -Wswitch (ADR-0015, REQ-SAF-008): ${file#"$ROOT"/}:${line}"
+    done < <(awk '
+      {
+        # Match against code only. Naming the function in a comment or a
+        # diagnostic string is not defining it, and arming on a mention would
+        # blame this function for a `default:` belonging to another one.
+        code = $0
+        if (in_block) {
+          if (sub(/^.*\*\//, "", code)) { in_block = 0 } else { code = "" }
+        }
+        gsub(/"[^"]*"/, "\"\"", code)
+        gsub(/\/\*[^*]*\*\//, " ", code)
+        if (sub(/\/\*.*$/, " ", code)) { in_block = 1 }
+        sub(/\/\/.*$/, "", code)
+      }
+      # Entering a candidate definition of refusal_for.
+      state == 0 && code ~ /refusal_for[[:space:]]*\(/ { state = 1; depth = 0; opened = 0 }
+      state == 1 {
+        # A prototype or a call, not a definition: no body to police.
+        if (opened == 0 && index(code, ";") > 0 && index(code, "{") == 0) { state = 0; next }
+        n = gsub(/\{/, "{", code); depth += n; if (n > 0) opened = 1
+        if (opened && code ~ /(^|[^[:alnum:]_])default[[:space:]]*:/) print NR
+        depth -= gsub(/\}/, "}", code)
+        if (opened && depth <= 0) state = 0
+      }
+    ' "$file" 2>/dev/null || true)
+  done < <(sources_in "$ROOT/core")
+}
+
 printf '\n\033[1m==> Checking architectural rules\033[0m\n'
 
 scan "$ROOT/core"  'hardware or platform header in core/ (REQ-DET-002)' "$HARDWARE_INCLUDES" 1
@@ -95,6 +141,7 @@ scan "$ROOT/core"  'non-deterministic call in core/ (REQ-DEV-002)'       "$NONDE
 scan "$ROOT/core"  'device path in core/ (REQ-DEV-001)'                  "$DEVICE_PATHS"
 scan "$ROOT/tests" 'hardware header in the default test suite (REQ-DEV-003)' "$HARDWARE_INCLUDES" 1
 scan "$ROOT/tests" 'device path in the default test suite (REQ-DEV-003)' "$DEVICE_PATHS"
+check_refusal_switch
 
 if [[ "$violations" -gt 0 ]]; then
   printf '\033[31m    FAILED: %d architectural violation(s).\033[0m\n' "$violations" >&2
