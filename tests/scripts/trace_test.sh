@@ -198,6 +198,25 @@ else
   _bad "the updated baseline does not contain the verified requirement"
 fi
 
+# The baseline's header is the only place that says what the file is, how to
+# regenerate it, and that entries may never be removed to get a green gate.
+# Regenerating the file must not delete its own instructions: a ratchet whose
+# rules are erased by the command that maintains it teaches the next reader
+# nothing, and the first thing they will reach for is deletion.
+sandbox="$(new_sandbox)"
+verified_baseline "$sandbox" <<'EOF'
+# Verified requirement baseline — the coverage ratchet.
+#
+# Never remove an entry to make the gate pass.
+EOF
+"$TRACE" --root "$sandbox" --update-baseline --tests-passed > /dev/null 2>&1
+if grep -qF 'Never remove an entry' "$sandbox/docs/requirements/verified.txt" \
+   && grep -qx 'REQ-EXA-001' "$sandbox/docs/requirements/verified.txt"; then
+  _ok "--update-baseline preserves the baseline's explanatory header"
+else
+  _bad "--update-baseline destroyed the baseline's explanatory header"
+fi
+
 # ------------------------------------------- citing a test is not proving it --
 #
 # A test file that names a requirement proves nothing until it PASSES. Deriving
