@@ -13,8 +13,11 @@
 #   scripts/check.sh --fix           # rewrite files with clang-format
 #
 # Steps, in order:
-#   configure, build, test, architectural rules, determinism, traceability,
-#   workflow evidence, formatting, clang-tidy.
+#   formatting, configure, build, test, architectural rules, determinism,
+#   traceability, workflow evidence, clang-tidy.
+#
+# Formatting runs first because it needs nothing the build produces. Running
+# it last meant a failing build hid it entirely (ADR-0017).
 #
 # Each step is skippable for the inner loop (--skip-tests, --skip-arch,
 # --skip-determinism, --skip-trace, --skip-workflow, --skip-format,
@@ -53,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     --skip-trace)       SKIP_TRACE=1; shift ;;
     --skip-workflow)    SKIP_WORKFLOW=1; shift ;;
     --fix)              FIX=1; shift ;;
-    -h|--help)     sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)     sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)             echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -106,6 +109,43 @@ read_into_array() {
     [[ -n "$line" ]] && read_result+=("$line")
   done
 }
+
+# ------------------------------------------------------------------- format --
+# Runs FIRST, and before the build, because it depends on nothing the build
+# produces: it reads the files git already tracks.
+#
+# It used to run last. The consequence was discovered the hard way: while the
+# acceptance suite was red the build failed at link, the gate exited there, and
+# the formatting step was never reached — 97 violations accumulated unseen
+# behind a failing build. A check that only runs once everything else already
+# passes cannot report the state of a repository that does not.
+#
+# Ordering a static check before the build costs a second and removes that
+# whole class of hiding place (ADR-0017).
+if [[ "$SKIP_FORMAT" == "0" ]]; then
+  step "Checking formatting"
+  if CLANG_FORMAT="$(find_tool clang-format)"; then
+    read_into_array < <(project_sources)
+    files=("${read_result[@]:-}")
+    if [[ -z "${files[0]:-}" ]]; then
+      ok "no source files to format"
+    elif [[ "$FIX" == "1" ]]; then
+      "$CLANG_FORMAT" -i "${files[@]}"
+      ok "reformatted ${#files[@]} file(s)"
+    else
+      "$CLANG_FORMAT" --dry-run --Werror "${files[@]}" \
+        || fail "formatting violations. Run: scripts/check.sh --fix"
+      # The version is printed because it is not pinned: two machines can
+      # disagree about what "formatted" means, and an unreported disagreement
+      # is one that gets blamed on the author instead of the toolchain.
+      ok "${#files[@]} file(s) correctly formatted ($("$CLANG_FORMAT" --version))"
+    fi
+  else
+    missing_tool clang-format
+  fi
+else
+  warn "formatting check skipped"
+fi
 
 # ---------------------------------------------------------------- configure --
 step "Configuring ($PRESET)"
@@ -183,29 +223,6 @@ else
   warn "workflow evidence check skipped"
 fi
 
-# ------------------------------------------------------------------- format --
-if [[ "$SKIP_FORMAT" == "0" ]]; then
-  step "Checking formatting"
-  if CLANG_FORMAT="$(find_tool clang-format)"; then
-    read_into_array < <(project_sources)
-    files=("${read_result[@]:-}")
-    if [[ -z "${files[0]:-}" ]]; then
-      ok "no source files to format"
-    elif [[ "$FIX" == "1" ]]; then
-      "$CLANG_FORMAT" -i "${files[@]}"
-      ok "reformatted ${#files[@]} file(s)"
-    else
-      "$CLANG_FORMAT" --dry-run --Werror "${files[@]}" \
-        || fail "formatting violations. Run: scripts/check.sh --fix"
-      ok "${#files[@]} file(s) correctly formatted"
-    fi
-  else
-    missing_tool clang-format
-  fi
-else
-  warn "formatting check skipped"
-fi
-
 # --------------------------------------------------------------------- tidy --
 if [[ "$SKIP_TIDY" == "0" ]]; then
   step "Running clang-tidy"
@@ -228,7 +245,7 @@ if [[ "$SKIP_TIDY" == "0" ]]; then
     else
       "$CLANG_TIDY" -p "$BUILD_DIR" --quiet "${tidy_args[@]:-}" "${tidy_files[@]}" \
         || fail "clang-tidy reported issues"
-      ok "${#tidy_files[@]} file(s) analysed"
+      ok "${#tidy_files[@]} file(s) analysed ($("$CLANG_TIDY" --version | grep -i 'LLVM version' | tr -s ' ' | sed 's/^ *//'))"
     fi
   else
     missing_tool clang-tidy
