@@ -188,7 +188,27 @@ if [[ "$UPDATE_BASELINE" == "1" ]]; then
     exit 1
   fi
   mkdir -p "$(dirname "$BASELINE_FILE")"
-  printf '%s\n' "$verified_now" > "$BASELINE_FILE"
+  # The IDs below are derived and are rewritten wholesale, but the leading
+  # comment block is not: it is the only place that records what this file is,
+  # how to regenerate it and that an entry may never be removed to get a green
+  # gate. A maintenance command that deletes its own instructions leaves the
+  # next reader with a bare list of IDs and no reason not to edit it.
+  #
+  # Only the leading block is kept. Everything from the first non-comment,
+  # non-blank line onwards is derived, so preserving it would let a stale ID
+  # outlive the coverage that earned it.
+  header=""
+  if [[ -f "$BASELINE_FILE" ]]; then
+    header="$(awk '/^[[:space:]]*#/ || /^[[:space:]]*$/ { print; next } { exit }' "$BASELINE_FILE")"
+  fi
+  {
+    if [[ -n "$header" ]]; then
+      printf '%s\n' "$header"
+    fi
+    if [[ -n "$verified_now" ]]; then
+      printf '%s\n' "$verified_now"
+    fi
+  } > "$BASELINE_FILE"
   echo
   echo "Recorded $(printf '%s' "$verified_now" | grep -c . || true) verified requirement(s) in $BASELINE_FILE."
   exit 0
