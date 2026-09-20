@@ -58,7 +58,13 @@ TargetTransition advance(const TargetMachineState& current, const FrameInput& in
   transition.next.next_id = std::max(current.next_id, input.next_id());
 
   switch (current.state) {
-    case TargetState::SEARCHING: {
+    case TargetState::SEARCHING:
+    // TARGET_LOST is stored for exactly one transition and is then left
+    // immediately: the frame that leaves it is judged as any other searching
+    // frame, so it may lock directly (`REQ-TRK-005`, ADR-0018). Nothing needs
+    // clearing on the way out — a lost track was not detected, so
+    // `REQ-TRK-009` discarded it when the loss was observed.
+    case TargetState::TARGET_LOST: {
       const std::optional<Track> selected = select_confirmed_target(input.detected_tracks());
       if (!selected.has_value()) {
         transition.next.state = TargetState::SEARCHING;
@@ -66,7 +72,8 @@ TargetTransition advance(const TargetMachineState& current, const FrameInput& in
         break;
       }
       // Three consecutive detections of one track, and exactly one target
-      // (`REQ-TRK-002`, `REQ-TRK-008`).
+      // (`REQ-TRK-002`, `REQ-TRK-008`). Locking here still owes a verification
+      // frame before anything may fire (`REQ-TRK-004`, `REQ-SAF-002`).
       transition.next.state = TargetState::TARGET_LOCKED;
       transition.next.engaged_track = selected->id;
       transition.intent = EngagementIntent::AIM_AT_TARGET;
@@ -94,13 +101,6 @@ TargetTransition advance(const TargetMachineState& current, const FrameInput& in
       retire(transition.next.tracks, re_detected->id);
       break;
     }
-
-    case TargetState::TARGET_LOST:
-      // Left on the following transition, so that the TARGET_LOCKED ->
-      // TARGET_LOST -> SEARCHING sequence is observable (`REQ-TRK-005`).
-      transition.next.state = TargetState::SEARCHING;
-      transition.intent = EngagementIntent::KEEP_SEARCHING;
-      break;
   }
 
   return transition;

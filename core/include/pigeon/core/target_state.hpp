@@ -28,7 +28,8 @@ enum class TargetState : std::uint8_t {
   /// A confirmed target exists and is being engaged (`REQ-TRK-002`).
   TARGET_LOCKED,
   /// The verification frame after locking did not re-detect the engaged track
-  /// (`REQ-TRK-005`, `REQ-TRK-010`).
+  /// (`REQ-TRK-005`, `REQ-TRK-010`). Occupied for exactly one transition: the
+  /// next frame is judged as any other searching frame (ADR-0018).
   TARGET_LOST,
 };
 
@@ -196,11 +197,17 @@ struct TargetTransition {
 ///   `FOUND` on other birds (`REQ-TRK-005`, `REQ-TRK-010`, ADR-0009). This is
 ///   why the input carries tracks rather than a bare classification: one bird
 ///   must not confirm an engagement that another bird then authorises.
-/// * `TARGET_LOST` → `SEARCHING`, `KEEP_SEARCHING`. `TARGET_LOST` is entered
-///   from `TARGET_LOCKED` and from nowhere else (`REQ-TRK-006`), and is left on
-///   the following transition so that the sequence `TARGET_LOCKED` →
-///   `TARGET_LOST` → `SEARCHING` of `REQ-TRK-005` is observable rather than
-///   collapsed into one step.
+/// * `TARGET_LOST` → `SEARCHING` or `TARGET_LOCKED`, judged exactly as a
+///   `SEARCHING` frame is (`REQ-TRK-005`, ADR-0018). `TARGET_LOST` is entered
+///   from `TARGET_LOCKED` and from nowhere else (`REQ-TRK-006`), and never
+///   occupies two consecutive transitions. It is stored for one transition so
+///   that the sequence `TARGET_LOCKED` → `TARGET_LOST` → `SEARCHING` of
+///   `REQ-TRK-005` is observable rather than collapsed into one step, but the
+///   frame that leaves it is not wasted: if that frame confirms a target, the
+///   machine locks on it there and then. Doing otherwise would discard a
+///   confirmable bird for a frame for no safety benefit — the new track earned
+///   its own three consecutive detections (`REQ-TRK-002`) and still owes its
+///   own verification frame (`REQ-TRK-004`) before anything may fire.
 /// * If no further frame arrives, no transition happens, the engagement never
 ///   resolves, and no fire command is issued. Inaction is the safe failure.
 ///
@@ -221,11 +228,15 @@ struct TargetTransition {
 ///   so the allocator never moves backwards and an identifier is never reused
 ///   within a run (`REQ-DEV-002`).
 ///
-/// **Derived, not specified:** an engagement ends when this function emits
-/// `FIRE_AT_TARGET`, whether or not `SafetyPolicy` then authorises the command
-/// and whether or not the link accepts it. The machine is pure and hears
-/// nothing back (ADR-0007), so it cannot behave otherwise; the effect is that
-/// a refused burst also retires the track, which is the conservative direction.
+/// An engagement ends when this function emits `FIRE_AT_TARGET`, whether or
+/// not `SafetyPolicy` then authorises the command and whether or not the link
+/// accepts it (`REQ-TRK-012`, ADR-0018). The machine is pure and hears nothing
+/// back (ADR-0007), so it could not behave otherwise; that this is also the
+/// wanted behaviour is now a ruling rather than a coincidence. A refused burst
+/// therefore retires its track, and the bird must earn three fresh consecutive
+/// detections. Note the deliberate asymmetry with ADR-0011: a refusal
+/// transmits nothing, so it consumes no cool-down and no engagement slot, but
+/// it does end the engagement.
 [[nodiscard]] TargetTransition advance(const TargetMachineState& current, const FrameInput& input);
 
 /// Abandon the current engagement without firing (`REQ-COM-002`).
