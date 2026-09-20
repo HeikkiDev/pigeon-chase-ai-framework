@@ -384,6 +384,50 @@ TEST(EngagementScenario, AnAbandonedEngagementAlsoRetiresItsTrack) {
       << "the abandoned bird needed three fresh detections, exactly like any other";
 }
 
+// Verifies: REQ-TRK-012 — "a burst refused by SafetyPolicy retires the engaged
+// track exactly as a transmitted burst does, and the bird must earn three
+// fresh consecutive detections before it can be confirmed again". Ruled in
+// ADR-0018: the engagement ends at the fire intent, not at the reply.
+TEST(EngagementScenario, ABurstRefusedBeforeTransmissionAlsoRetiresItsTrack) {
+  ManualClock clock;
+  SimulatedActuatorLink link{clock};
+  EngagementLoop loop{calibrated_configuration(), clock, link, test_image_size};
+
+  static_cast<void>(loop.process(bird_frame()));
+  static_cast<void>(loop.process(bird_frame()));
+  const FrameOutcome locking = loop.process(bird_frame());
+  ASSERT_EQ(locking.intent, EngagementIntent::AIM_AT_TARGET);
+  ASSERT_FALSE(locking.engagement_abandoned) << "the link was healthy while aiming";
+
+  // The link dies after the rig is aimed, so the fire decision — and only the
+  // fire decision — is refused, with nothing transmitted (`REQ-SAF-008`).
+  link.set_status(LinkStatus::UNAVAILABLE);
+
+  const FrameOutcome refused = loop.process(bird_frame());
+  ASSERT_EQ(refused.intent, EngagementIntent::FIRE_AT_TARGET);
+  ASSERT_FALSE(refused.fire_command_sent) << "an unhealthy link must not be fired over";
+  ASSERT_TRUE(refused.refusal.has_value());
+  EXPECT_EQ(*refused.refusal, FireRefusal::LINK_UNAVAILABLE);
+  EXPECT_TRUE(link.fire_commands().empty());
+  EXPECT_EQ(refused.state_after, TargetState::SEARCHING);
+  EXPECT_TRUE(refused.tracks_after.empty())
+      << "a refused burst retires the engaged track just as a transmitted one does";
+
+  link.set_status(LinkStatus::OK);  // the link comes back immediately
+
+  const FrameOutcome first = loop.process(bird_frame());
+  ASSERT_EQ(first.tracks_after.size(), 1U);
+  EXPECT_EQ(first.tracks_after.at(0).consecutive_detections, 1U)
+      << "the refused bird starts its count again from one, not from five";
+  EXPECT_EQ(first.state_after, TargetState::SEARCHING);
+  const FrameOutcome second = loop.process(bird_frame());
+  EXPECT_EQ(second.state_after, TargetState::SEARCHING);
+  const FrameOutcome third = loop.process(bird_frame());
+  EXPECT_EQ(third.state_after, TargetState::TARGET_LOCKED)
+      << "three fresh detections, exactly like any other bird";
+  EXPECT_TRUE(link.fire_commands().empty()) << "locking again must not itself fire";
+}
+
 // Verifies: REQ-TRK-008, REQ-TRK-012 — "no fire command is ever issued for
 // more than one target in one engagement", and "a track that was not the
 // engaged one keeps its consecutive-detection count across the end of another

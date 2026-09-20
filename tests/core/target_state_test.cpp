@@ -310,23 +310,55 @@ TEST(TargetStateMachine, LosesThenReturnsToSearchingWithoutFiring) {
   }
 }
 
-// Verifies: REQ-TRK-005, REQ-TRK-006 — TARGET_LOST is left on the following
-// transition, and leaving it returns to SEARCHING rather than re-locking.
-TEST(TargetStateMachine, LeavesTargetLostForSearchingOnTheNextFrame) {
+// Verifies: REQ-TRK-005 — "a frame that leaves TARGET_LOST and confirms a
+// track yields TARGET_LOCKED in that same transition, not one frame later",
+// and that an unconfirmed frame still returns to SEARCHING. Ruled in ADR-0018.
+TEST(TargetStateMachine, LeavesTargetLostIntoWhateverTheNextFrameShows) {
   const TargetMachineState lost{.state = TargetState::TARGET_LOST,
                                 .engaged_track = std::nullopt,
                                 .tracks = {},
                                 .next_id = static_cast<TrackId>(4)};
 
   const TargetTransition after_none = advance(lost, FrameInput::none());
+  const TargetTransition after_unconfirmed =
+      advance(lost, found_with({track_with(1, detection_at(100.0, 100.0), 2)}));
   const TargetTransition after_found =
       advance(lost, found_with({track_with(1, detection_at(100.0, 100.0), 5)}));
 
   EXPECT_EQ(after_none.next.state, TargetState::SEARCHING);
   EXPECT_EQ(after_none.intent, EngagementIntent::KEEP_SEARCHING);
-  EXPECT_EQ(after_found.next.state, TargetState::SEARCHING);
-  EXPECT_EQ(after_found.intent, EngagementIntent::KEEP_SEARCHING);
-  EXPECT_NE(after_found.intent, EngagementIntent::FIRE_AT_TARGET);
+
+  EXPECT_EQ(after_unconfirmed.next.state, TargetState::SEARCHING);
+  EXPECT_EQ(after_unconfirmed.intent, EngagementIntent::KEEP_SEARCHING);
+
+  EXPECT_EQ(after_found.next.state, TargetState::TARGET_LOCKED)
+      << "a confirmed track in the frame that leaves TARGET_LOST must be locked "
+         "in that transition, not a frame later";
+  EXPECT_EQ(after_found.intent, EngagementIntent::AIM_AT_TARGET);
+  ASSERT_TRUE(after_found.next.engaged_track.has_value());
+  EXPECT_EQ(*after_found.next.engaged_track, static_cast<TrackId>(1));
+  EXPECT_NE(after_found.intent, EngagementIntent::FIRE_AT_TARGET)
+      << "locking out of TARGET_LOST must still owe a verification frame";
+}
+
+// Verifies: REQ-TRK-005 — "TARGET_LOST is never the state of two consecutive
+// transitions". No frame content may hold the system there. Ruled in ADR-0018.
+TEST(TargetStateMachine, NeverRemainsInTargetLostForASecondTransition) {
+  const TargetMachineState lost{.state = TargetState::TARGET_LOST,
+                                .engaged_track = std::nullopt,
+                                .tracks = {},
+                                .next_id = static_cast<TrackId>(4)};
+
+  std::vector<FrameInput> inputs;
+  inputs.push_back(FrameInput::none());
+  for (std::uint32_t count = 1; count <= confirmation_frame_count + 2; ++count) {
+    inputs.push_back(found_with({track_with(1, detection_at(100.0, 100.0), count)}));
+  }
+
+  for (const FrameInput& input : inputs) {
+    EXPECT_NE(advance(lost, input).next.state, TargetState::TARGET_LOST)
+        << "TARGET_LOST persisted into a second transition";
+  }
 }
 
 // Verifies: REQ-TRK-006 — "no sequence of frames starting in SEARCHING reaches
