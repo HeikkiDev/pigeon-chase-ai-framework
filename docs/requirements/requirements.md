@@ -270,15 +270,30 @@ tests (`REQ-DEV-002`).
 ### REQ-TRK-005 — Target loss
 
 **Statement:** If the verification frame required by `REQ-TRK-004` is classified
-`NONE`, the system SHALL transition to `TARGET_LOST`, SHALL NOT issue a fire
-command, and SHALL then return to `SEARCHING` with a zeroed confirmation
-counter.
+`NONE`, the system SHALL transition to `TARGET_LOST` and SHALL NOT issue a fire
+command. `TARGET_LOST` SHALL NOT persist: the system SHALL leave it on the
+immediately following frame, with a zeroed confirmation counter. That frame
+SHALL be judged as any other searching frame — the system SHALL return to
+`SEARCHING`, or SHALL enter `TARGET_LOCKED` directly if that frame confirms a
+target under `REQ-TRK-002`.
+
+**Rationale:** Losing a target must cost the frame that observed the loss and
+no more. Spending a further frame in `TARGET_LOST` before looking again would
+discard a confirmable bird for 200 ms at the 5 FPS of `REQ-DET-003`, for no
+safety benefit: a track confirmed in that frame has earned its three
+consecutive detections on its own, and still owes a verification frame under
+`REQ-TRK-004` before anything may fire. The state remains observable for one
+transition, which is what keeps the `REQ-TRK-001` state set honest and
+`REQ-TRK-006` meaningful. Recorded in ADR-0018.
 
 **Acceptance:**
 
 * The sequence `FOUND` ×3 then `NONE` yields states `TARGET_LOCKED` →
   `TARGET_LOST` → `SEARCHING`.
 * No fire command is emitted anywhere in that sequence.
+* A frame that leaves `TARGET_LOST` and confirms a track yields `TARGET_LOCKED`
+  in that same transition, not one frame later.
+* `TARGET_LOST` is never the state of two consecutive transitions.
 
 ### REQ-TRK-006 — `TARGET_LOST` is only reachable from `TARGET_LOCKED`
 
@@ -367,6 +382,12 @@ engaged SHALL be confirmed again only after three fresh consecutive detections
 engagement SHALL be confirmed by detections that were counted towards a
 previous engagement.
 
+An engagement ends when the target state machine issues the fire intent,
+**whether or not the resulting fire command is authorised by `SafetyPolicy` or
+accepted by the actuator link**. A burst refused by the cool-down, the
+engagement rate, the exclusion zone, an empty envelope or an unhealthy link
+SHALL retire the engaged track exactly as a transmitted burst does.
+
 **Rationale:** `REQ-SAF-002` forbids a fire command unless `REQ-TRK-002` and
 `REQ-TRK-004` have both been satisfied **for the current engagement**. Without
 this reset, a second burst is authorised by detections that occurred during the
@@ -388,7 +409,8 @@ that a non-resetting design would take will be missed. A missed deterrent is
 cheap; an unearned burst is not.
 
 The `TARGET_LOST` path needs no rule of its own: the track was not detected, so
-`REQ-TRK-009` has already discarded it. Recorded in ADR-0013.
+`REQ-TRK-009` has already discarded it. Recorded in ADR-0013; the refused-burst
+case was ruled on by the maintainer and recorded in ADR-0018.
 
 **Acceptance:**
 
@@ -402,6 +424,10 @@ The `TARGET_LOST` path needs no rule of its own: the track was not detected, so
   frame in which it was abandoned.
 * A track that was not the engaged one keeps its consecutive-detection count
   across the end of another track's engagement.
+* A burst refused by `SafetyPolicy` — for the cool-down, the engagement rate,
+  the exclusion zone, an empty envelope or an unhealthy link — retires the
+  engaged track exactly as a transmitted burst does, and the bird must earn
+  three fresh consecutive detections before it can be confirmed again.
 
 ---
 
