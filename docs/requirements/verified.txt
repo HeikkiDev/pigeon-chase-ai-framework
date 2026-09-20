@@ -15,5 +15,36 @@
 # retired, add "**Superseded by:** REQ-..." to it in requirements.md instead —
 # the ratchet honours that, and the ID stays reserved forever.
 #
-# Currently empty: no product code exists yet, so nothing is verified. All 24
-# requirements are reported as UNVERIFIED outstanding work.
+# Regenerating this file preserves the comment block above and rewrites
+# everything below it. The requirements not listed here are reported by the
+# gate as UNVERIFIED: outstanding work, not a failure (ADR-0006).
+REQ-AIM-001
+REQ-AIM-002
+REQ-AIM-003
+REQ-COM-002
+REQ-COM-003
+REQ-DET-001
+REQ-DET-002
+REQ-DET-004
+REQ-DEV-001
+REQ-DEV-002
+REQ-SAF-001
+REQ-SAF-002
+REQ-SAF-003
+REQ-SAF-004
+REQ-SAF-005
+REQ-SAF-006
+REQ-SAF-007
+REQ-SAF-008
+REQ-TRK-001
+REQ-TRK-002
+REQ-TRK-003
+REQ-TRK-004
+REQ-TRK-005
+REQ-TRK-006
+REQ-TRK-007
+REQ-TRK-008
+REQ-TRK-009
+REQ-TRK-010
+REQ-TRK-011
+REQ-TRK-012

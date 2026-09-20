@@ -52,9 +52,9 @@ Never delete a requirement and never reuse its ID. Add a `**Superseded by:**`
 line naming the replacement:
 
 ```markdown
-### REQ-TRK-002 — Older behaviour
+### REQ-EXA-001 — Older behaviour
 
-**Superseded by:** REQ-TRK-009
+**Superseded by:** REQ-EXA-002
 ```
 
 The gate checks that the successor exists, and allows the retired requirement
@@ -128,6 +128,28 @@ it was seen.
 * This is verified by a hardware-in-the-loop test, which stays out of the
   default suite and out of CI (`REQ-DEV-003`).
 
+### REQ-DET-004 — Frame pixel format
+
+**Statement:** A frame presented to the detection component SHALL be packed
+**RGB888**: three 8-bit channels per pixel in red, green, blue order, rows
+ordered top to bottom and separated by a stride in bytes that is at least three
+times the frame width. `core/` SHALL NOT perform colour-space conversion; a
+producer that cannot emit RGB888 converts on its own side.
+
+**Rationale:** Detection runtimes generally expect 8-bit RGB, and the Raspberry
+Pi camera stack can emit it directly. YUV420 would save a conversion on the Pi
+but complicates every fixture, and fixtures are the thing that has to stay
+simple because every deterministic test depends on them (`REQ-DEV-002`).
+Declaring one format also means the frame type carries no format field to get
+wrong.
+
+**Acceptance:**
+
+* The frame type carries width, height and stride, and the buffer it views is
+  at least `stride × height` bytes.
+* Fixtures are stored as RGB888 and are byte-identical between runs.
+* A pixel at `(x, y)` begins at byte `y × stride + x × 3`.
+
 ---
 
 ## Target state machine
@@ -165,7 +187,9 @@ and gives `REQ-AIM-001` a well-defined position to aim at.
 ### REQ-TRK-007 — Detections are associated into tracks across frames
 
 **Statement:** The system SHALL associate each detection with the nearest
-existing track whose centroid lies within a configured association radius. A
+existing track whose centroid lies within a configured association radius. The
+radius SHALL be **inclusive**: a detection whose centroid is exactly the
+association radius from a track's centroid SHALL associate with that track. A
 detection that matches no track SHALL start a new track. A track that receives
 no detection in a frame SHALL have its consecutive-detection count reset
 (`REQ-TRK-003`).
@@ -173,12 +197,24 @@ no detection in a frame SHALL have its consecutive-detection count reset
 **Rationale:** Confirmation and aiming are both statements about *a pigeon*,
 not about *a frame*. Without association neither is well defined.
 
+"Within a configured radius" reads inclusively in plain English, and a closed
+interval is what a reader assumes, so the inclusive reading is the one that
+surprises nobody. In floating-point practice exact equality essentially never
+occurs, so this settles the specification rather than the observable behaviour
+— but a hole in a specification gets filled by two different guesses in two
+different places, which is how a tracker and its test end up disagreeing.
+
 **Acceptance:**
 
 * Two detections in successive frames within the association radius produce one
   track with a count of two.
-* Two detections in successive frames beyond the association radius produce two
-  tracks, each with a count of one.
+* A detection whose centroid lies at **exactly** the association radius from an
+  existing track's centroid joins that track, raising its count to two; one a
+  fraction of a pixel further away does not.
+* A detection in the following frame that lies beyond the association radius
+  from every existing track starts a **new** track with a count of one, while
+  the track it failed to match is discarded because it received no detection
+  (`REQ-TRK-009`).
 * Association is deterministic: identical frame sequences produce identical
   tracks, independent of iteration order (`REQ-DEV-002`).
 
@@ -234,15 +270,30 @@ tests (`REQ-DEV-002`).
 ### REQ-TRK-005 — Target loss
 
 **Statement:** If the verification frame required by `REQ-TRK-004` is classified
-`NONE`, the system SHALL transition to `TARGET_LOST`, SHALL NOT issue a fire
-command, and SHALL then return to `SEARCHING` with a zeroed confirmation
-counter.
+`NONE`, the system SHALL transition to `TARGET_LOST` and SHALL NOT issue a fire
+command. `TARGET_LOST` SHALL NOT persist: the system SHALL leave it on the
+immediately following frame, with a zeroed confirmation counter. That frame
+SHALL be judged as any other searching frame — the system SHALL return to
+`SEARCHING`, or SHALL enter `TARGET_LOCKED` directly if that frame confirms a
+target under `REQ-TRK-002`.
+
+**Rationale:** Losing a target must cost the frame that observed the loss and
+no more. Spending a further frame in `TARGET_LOST` before looking again would
+discard a confirmable bird for 200 ms at the 5 FPS of `REQ-DET-003`, for no
+safety benefit: a track confirmed in that frame has earned its three
+consecutive detections on its own, and still owes a verification frame under
+`REQ-TRK-004` before anything may fire. The state remains observable for one
+transition, which is what keeps the `REQ-TRK-001` state set honest and
+`REQ-TRK-006` meaningful. Recorded in ADR-0018.
 
 **Acceptance:**
 
 * The sequence `FOUND` ×3 then `NONE` yields states `TARGET_LOCKED` →
   `TARGET_LOST` → `SEARCHING`.
 * No fire command is emitted anywhere in that sequence.
+* A frame that leaves `TARGET_LOST` and confirms a track yields `TARGET_LOCKED`
+  in that same transition, not one frame later.
+* `TARGET_LOST` is never the state of two consecutive transitions.
 
 ### REQ-TRK-006 — `TARGET_LOST` is only reachable from `TARGET_LOCKED`
 
@@ -252,6 +303,131 @@ counter.
 
 * No sequence of frames starting in `SEARCHING` reaches `TARGET_LOST` without
   passing through `TARGET_LOCKED`.
+
+### REQ-TRK-009 — A track that misses a frame is discarded
+
+**Statement:** A track that receives no detection in a frame SHALL be
+discarded. The system SHALL NOT retain tracks across a missed frame, and SHALL
+NOT provide a configurable retention period.
+
+**Rationale:** Strengthens the counter reset of `REQ-TRK-003` and
+`REQ-TRK-007`. A retained track whose count has been reset to zero re-associates
+at a count of one, which is indistinguishable from a brand-new track: retention
+changes no confirmation outcome. It would, however, add a retention parameter
+to calibrate and a decay path to test. Track identity matters only while a
+track is engaged, and that case is already decided — a locked track that is not
+re-detected produces `TARGET_LOST` on the same frame (`REQ-TRK-010`,
+`REQ-TRK-005`). Recorded in ADR-0010.
+
+**Acceptance:**
+
+* A track absent for one frame and detected again in the next has a
+  consecutive-detection count of one, not two.
+* Every track in the track set has a consecutive-detection count of at least
+  one.
+* No configured track-retention or track-decay parameter exists.
+
+### REQ-TRK-010 — Verification re-detects the locked track
+
+**Statement:** The verification frame required by `REQ-TRK-004` SHALL be
+satisfied only if **the locked track itself** is detected in it. A verification
+frame in which the locked track is absent SHALL produce the transition to
+`TARGET_LOST` required by `REQ-TRK-005`, whether that frame is classified
+`NONE` or `FOUND` on other tracks.
+
+**Rationale:** The reasoning behind `REQ-TRK-002` — three different birds must
+not confirm a target that was never persistently there — applies identically to
+verification. Accepting any detection would let one bird confirm the engagement
+and a different bird authorise the water, which also contradicts the
+one-target-at-a-time rule of `REQ-TRK-008`. This is the stricter reading, and
+its failure mode is not firing. Recorded in ADR-0009.
+
+**Acceptance:**
+
+* Verification frame contains the locked track → a fire command is issued.
+* Verification frame is `FOUND` but contains only other tracks → no fire
+  command, and the state becomes `TARGET_LOST`.
+* Verification frame is `NONE` → no fire command, and the state becomes
+  `TARGET_LOST`.
+
+### REQ-TRK-011 — An engagement ends when the fire command is issued
+
+**Statement:** After a fire command has been issued the system SHALL return to
+`SEARCHING`. It SHALL NOT enter any state outside the three of `REQ-TRK-001`,
+and it MAY engage the same track again, subject to the cool-down and maximum
+engagement rate of `REQ-SAF-005`.
+
+**Rationale:** A fourth "fired" state would breach `REQ-TRK-001`. Refusing ever
+to re-engage a track would require remembering every track fired upon, for an
+unbounded time, and the bird just sprayed is precisely the one most likely to
+still be there. Harassment is bounded by the rate limiter, which is a
+requirement that already exists and is already tested, rather than by memory in
+the state machine. Recorded in ADR-0012.
+
+**Acceptance:**
+
+* `FOUND` ×3 on one track followed by a verification frame on that track yields
+  `TARGET_LOCKED`, then a fire command, then `SEARCHING`.
+* No second fire command is issued before the cool-down has elapsed, even while
+  the same track remains confirmable.
+* No state outside the three of `REQ-TRK-001` is reachable after firing.
+
+### REQ-TRK-012 — Every engagement earns its own confirmation
+
+**Statement:** When an engagement ends — because a fire command was issued
+(`REQ-TRK-011`) or because the engagement was abandoned (`REQ-COM-002`) — the
+engaged track's consecutive-detection count SHALL be reset. The bird that was
+engaged SHALL be confirmed again only after three fresh consecutive detections
+(`REQ-TRK-002`), counted from the first frame after the engagement ended. No
+engagement SHALL be confirmed by detections that were counted towards a
+previous engagement.
+
+An engagement ends when the target state machine issues the fire intent,
+**whether or not the resulting fire command is authorised by `SafetyPolicy` or
+accepted by the actuator link**. A burst refused by the cool-down, the
+engagement rate, the exclusion zone, an empty envelope or an unhealthy link
+SHALL retire the engaged track exactly as a transmitted burst does.
+
+**Rationale:** `REQ-SAF-002` forbids a fire command unless `REQ-TRK-002` and
+`REQ-TRK-004` have both been satisfied **for the current engagement**. Without
+this reset, a second burst is authorised by detections that occurred during the
+*first* engagement: the confirmation is inherited rather than earned, which is
+exactly what `REQ-SAF-002` exists to prevent. Resetting makes that requirement
+literally true rather than approximately true.
+
+It costs no responsiveness. Three fresh detections at 5 FPS (`REQ-DET-003`) is
+600 ms, and the cool-down is 2 s (`REQ-SAF-005`), so re-confirmation completes
+comfortably inside a wait the system must serve anyway: the rig is no slower to
+fire, it merely stops claiming a confirmation it did not earn. It also avoids
+pointless actuation — without the reset the rig re-locks and re-aims on every
+frame at a bird it is forbidden to fire at, which is servo wear for no
+deterrent benefit.
+
+The accepted trade-off: if the bird is detected intermittently, the count can
+restart and delay the next burst beyond the cool-down, so some opportunities
+that a non-resetting design would take will be missed. A missed deterrent is
+cheap; an unearned burst is not.
+
+The `TARGET_LOST` path needs no rule of its own: the track was not detected, so
+`REQ-TRK-009` has already discarded it. Recorded in ADR-0013; the refused-burst
+case was ruled on by the maintainer and recorded in ADR-0018.
+
+**Acceptance:**
+
+* A track detected in every frame, engaged and fired upon in frame N, is not
+  confirmed in frame N+1 or N+2, and is confirmed in frame N+3 at the earliest.
+* No aiming command is issued for that bird in frames N+1 and N+2, and the
+  state is `SEARCHING` throughout them.
+* The consecutive-detection count observed for that bird in frame N+1 is one,
+  not five.
+* After an engagement abandoned under `REQ-COM-002`, the same holds from the
+  frame in which it was abandoned.
+* A track that was not the engaged one keeps its consecutive-detection count
+  across the end of another track's engagement.
+* A burst refused by `SafetyPolicy` — for the cool-down, the engagement rate,
+  the exclusion zone, an empty envelope or an unhealthy link — retires the
+  engaged track exactly as a transmitted burst does, and the bird must earn
+  three fresh consecutive detections before it can be confirmed again.
 
 ---
 
@@ -334,6 +510,20 @@ key/value format needs no third-party parser, which matters on a 1 GB target.
 
 * Encoding and decoding are covered by tests that use no serial device.
 * Malformed input is rejected without undefined behaviour.
+* The protocol lets the commanding side keep its picture of link health current
+  without sending a fire command: every command is answered by a reply that
+  distinguishes acceptance from refusal, and the device emits a periodic
+  heartbeat so that silence is detectable as a fault (`REQ-COM-003`).
+
+**Blocked on work not yet done.** The protocol has not been designed. `core/`
+deliberately models the device boundary as *operations* — `ActuatorLink` — and
+not as an encoding (ADR-0007), so there is nothing in `core/` a test could
+assert against without inventing an API. This requirement will therefore be
+reported `UNVERIFIED` by `scripts/trace.sh` until the wire protocol is
+specified in `docs/architecture/` and implemented in `raspberry/` and
+`arduino/`. That is outstanding work with a known owner, not a missing test:
+recorded here so the permanent `UNVERIFIED` line is explained rather than
+mysterious.
 
 ### REQ-COM-002 — Fail-safe on communication loss
 
@@ -345,6 +535,60 @@ to `SEARCHING`.
 
 * With a simulated link that fails after locking, no fire command is emitted and
   the final state is `SEARCHING`.
+* A link that has become unavailable is refused on the strength of its reported
+  health alone, with no command sent to discover the fault (`REQ-COM-003`).
+
+### REQ-COM-003 — Current link health is queryable without an exchange
+
+**Statement:** The actuator link SHALL report its current health on demand, as
+one of the same set of link statuses its commands return, at any time and
+before any command has been sent. The query SHALL NOT require an exchange with
+the actuator system, SHALL NOT block, and SHALL NOT change the state of either
+device. The health used for a fire decision SHALL be obtained from this query
+at the moment of the decision, and SHALL NOT be a remembered outcome of an
+earlier exchange supplied by the caller.
+
+**Rationale:** `REQ-SAF-008` requires a distinct refusal for every link status
+that is not `OK`, but the boundary as first designed could not deliver one. The
+only pre-send query was a boolean, so a caller deciding whether to fire could
+construct `OK` or unavailable and nothing else; a transport failure or a
+rejection only ever existed as the *return value of an exchange that had already
+happened*. The rule was therefore correct and unreachable: two of its four cases
+could not occur in any real composition of the interfaces. Found by the
+test-engineer, which could only reach those branches through a seam it invented
+inside its own fixtures, and flagged that honestly rather than presenting it as
+coverage.
+
+The query must not itself require an exchange, or the circularity returns: you
+would have to talk to the device to learn whether you may talk to the device.
+It is answered from what the commanding side already knows — whether its
+transport is open, whether its last exchange faulted, whether the device has
+answered its heartbeat within the expected interval (`REQ-COM-001`).
+
+Firmware satisfies this without ever being asked: it replies to every command
+distinguishing acceptance from refusal, and emits a periodic heartbeat, so the
+host's picture stays current without a fire command being sent to refresh it. No
+new device-side operation is required.
+
+Deriving the status from a caller-held memory of the last exchange was
+considered and rejected: remembered state that nothing forces the caller to
+refresh is exactly the obligation an implementer forgets, and a safety rule
+resting on bookkeeping nobody checks is not a safety rule (ADR-0016).
+
+**Acceptance:**
+
+* Each link status is obtainable from a simulated link before any command has
+  been sent, and each reaches the fire decision and produces its own refusal
+  (`REQ-SAF-008`).
+* Querying health transmits nothing: a simulated link that counts transmissions
+  records none after any number of queries.
+* A link whose health degrades between the aiming frame and the firing frame
+  refuses the burst on the strength of the query alone, with no intervening
+  command.
+* A fire decision cannot be taken without consulting the link: the decision is
+  given the link itself, and no caller-supplied status can stand in for it.
+* Two queries with no exchange between them return the same status, and neither
+  changes the actuator system's state.
 
 ---
 
@@ -382,15 +626,34 @@ a configured cool-down period, defaulting to **2 seconds**, and SHALL NOT
 exceed a configured maximum engagement rate, defaulting to **6 engagements per
 minute**.
 
+Both limits SHALL use one convention for elapsed time: a period of duration *D*
+that began at *t* SHALL be treated as **elapsed** once the monotonic clock
+reads *t + D* or later, and a time window of length *D* ending at *now* SHALL
+be **half-open** — it contains every instant strictly later than *now − D*. A
+cool-down of 2 s beginning at *t* therefore occupies [*t*, *t* + 2000 ms), and
+a burst exactly one minute old lies outside the one-minute window.
+
 **Rationale:** Deterrence, not harassment. Rate limiting also protects the pump
 from an abusive duty cycle and bounds water consumption.
+
+One convention, stated once and covering both limits, rather than two rules
+that will drift apart — the cool-down and the rate window are the same kind of
+question asked twice. It is also what an implementer writing the obvious `>=`
+comparison gets by default, which is a property worth having: a convention that
+matches the naive implementation is one that survives the next author
+(ADR-0014).
 
 **Acceptance:**
 
 * A fire command immediately followed by another confirmed target produces no
   second fire command until the cool-down has elapsed.
+* A burst authorised at **exactly** the cool-down duration after the previous
+  transmitted burst is permitted; one a millisecond earlier is refused.
 * A sequence of confirmed targets arriving faster than the configured rate
   produces no more than the configured number of fire commands per minute.
+* A transmitted burst **exactly** one minute old no longer counts towards the
+  rate limit, so the engagement it occupied becomes available again at that
+  instant.
 * Rate limiting is driven by an injected monotonic clock, never by the wall
   clock, so the behaviour is deterministic under test (`REQ-DEV-002`).
 
@@ -433,10 +696,113 @@ retrofitting it later costs a redesign.
 **Statement:** On startup and on shutdown the actuator system SHALL be placed in
 a state in which the water actuator is inactive.
 
+The inertness of an **uncalibrated** rig SHALL rest on the empty default
+envelope alone (`REQ-AIM-002`): no other stage of the pipeline is required to
+fail for safety to hold. An uncalibrated rig MAY detect, associate, confirm and
+reach `TARGET_LOCKED`; it commands no motion and no water because there is no
+envelope to command within.
+
+**Rationale:** The default association radius is zero, which for a camera means
+nothing associates and nothing is ever confirmed. That is a consequence, not a
+guarantee: the radius is inclusive (`REQ-TRK-007`), so a source that reproduces
+a centroid exactly — every simulated detector, and any future replay of
+recorded detections — does associate at zero radius and does reach
+`TARGET_LOCKED`. Stating where the safety actually lives stops anyone reading
+the quiet tracker as a second line of defence and building on it. Found by the
+test-engineer while asserting the inclusive radius.
+
 **Acceptance:**
 
 * The simulated actuator reports inactive immediately after construction and
   after shutdown.
+* A default-constructed configuration driven by a detector that reproduces a
+  centroid exactly may reach `TARGET_LOCKED`, and still produces no aiming
+  command and no fire command.
+
+### REQ-SAF-006 — Exclusion zone geometry
+
+**Statement:** The exclusion zone of `REQ-SAF-003` SHALL be an axis-aligned
+rectangle in servo-angle space, defined by one closed interval on each axis.
+**At most one** exclusion zone SHALL be configurable per installation. Firing
+SHALL be prohibited when the commanded angles lie inside both intervals.
+
+**Rationale:** A rectangle in angle space is the shape the mechanical envelope
+already uses, so the two are described in the same terms and reviewed in the
+same diff. Limiting an installation to one zone keeps the configuration
+incapable of expressing a second — an unrepresentable case needs no
+undocumented behaviour — and matches what a rig mounted in one position needs:
+one direction it must not spray. The reference installation configures none
+(Q9), which is why the mechanism must be tested against an explicitly
+configured zone (`REQ-SAF-003`).
+
+**Acceptance:**
+
+* Angles inside both intervals produce no fire command.
+* Angles inside one interval but not the other permit firing.
+* The configuration cannot represent more than one zone.
+* With no zone configured, firing is permitted anywhere within the mechanical
+  envelope.
+
+### REQ-SAF-007 — A transmitted fire command counts
+
+**Statement:** A fire command that has been transmitted to the actuator system
+SHALL count towards the cool-down and the maximum engagement rate of
+`REQ-SAF-005`, regardless of the response — including rejection, timeout, or
+loss of the link. A fire command that was refused before transmission SHALL NOT
+count.
+
+**Rationale:** Once a command has left the Raspberry Pi, whether water left the
+nozzle is not knowable from this side of the link. Counting it risks one missed
+deterrent; not counting it risks a retry loop firing repeatedly over a flaky
+link, which is the failure the rate limit exists to prevent. The asymmetry of
+those two costs decides it. Recorded in ADR-0011.
+
+**Acceptance:**
+
+* A simulated link that rejects a fire command still starts the cool-down.
+* A simulated link that fails after transmission produces no further fire
+  command until the cool-down has elapsed.
+* A burst refused before transmission — empty envelope, exclusion zone, rate
+  limit — starts no cool-down and consumes no engagement.
+
+### REQ-SAF-008 — Only a healthy link may fire
+
+**Statement:** The system SHALL issue a fire command only while the actuator
+link reports `OK`. Every other link status SHALL refuse the burst, and each
+status SHALL produce its **own** refusal reason, distinct from the reason
+produced by any other status and from every other cause of refusal. The status
+tested SHALL be the link's current health, queried at the moment of the
+decision (`REQ-COM-003`), and every status SHALL be reachable at that moment.
+
+**Rationale:** A link that is not known to be healthy is not a link to send
+water over. `REQ-COM-002` already says what to do when the link becomes
+*unavailable*; it says nothing about a link that is open but failing, or one
+that rejects what it is told, and those were left as an implementer's
+coin-flip. Refusing on anything but `OK` makes the set of statuses total: there
+is no status without an answer, and the answer errs towards not firing.
+
+Distinct reasons make a refusal diagnosable. "It did not fire" is not a
+diagnosis, and a rig in the field that cannot say whether the link was down,
+the exchange failed or the firmware refused the command is a rig that has to be
+debugged by guesswork. The reasons are one-to-one with the statuses so that a
+status added later cannot quietly inherit another's reason (ADR-0015).
+
+**Acceptance:**
+
+* A link reporting `OK` and an otherwise permitted engagement produces a fire
+  command.
+* A link reporting an unavailable link, a transport failure, or a rejection
+  each produces no fire command.
+* The refusal reason differs for each of those three statuses, and no two
+  statuses share a reason.
+* Every `LinkStatus` value is either `OK` or has a refusal reason: no status
+  is unhandled.
+* Every status is **reachable** at the fire decision: for each one there is a
+  simulated link reporting it, before any command is sent, that produces that
+  status's refusal. No status is refused only in principle (`REQ-COM-003`).
+* The decision consults the link rather than accepting a status from its
+  caller, so an engagement cannot be authorised against a health nobody
+  observed.
 
 ---
 
@@ -493,15 +859,24 @@ is a reference. Defaults are the values the system ships with.
 | Maximum fire duration      | 500 ms         | `REQ-SAF-001` |
 | Cool-down after firing     | 2 s            | `REQ-SAF-005` |
 | Maximum engagement rate    | 6 / minute     | `REQ-SAF-005` |
-| Exclusion zone             | none configured | `REQ-SAF-003` |
+| Exclusion zone             | none configured, at most one | `REQ-SAF-003`, `REQ-SAF-006` |
+| Frame pixel format         | RGB888, not configurable | `REQ-DET-004` |
+| Track retention            | none; discarded on a missed frame | `REQ-TRK-009` |
 
 *uncalibrated* means the value is a property of the physical rig and is
 recorded during bring-up. Until then the empty default envelope prevents
 firing, so an uncalibrated system is inert rather than dangerous.
 
-The reference installation configures no exclusion zone (Q9). The mechanism is
-still required and still tested, because the zone is a property of where the
-rig is mounted, and rigs get moved.
+The last two rows are parameters the system deliberately does **not** have.
+They are listed so that nobody adds them back: one declared pixel format keeps
+fixtures simple (`REQ-DET-004`), and immediate track discard was shown to
+change no confirmation outcome, so a retention period would be a dial with
+nothing on the other end of it (`REQ-TRK-009`, ADR-0010).
+
+The reference installation configures no exclusion zone (Q9), and an
+installation may configure at most one (Q14). The mechanism is still required
+and still tested, because the zone is a property of where the rig is mounted,
+and rigs get moved.
 
 ## Open questions
 
@@ -517,6 +892,12 @@ Add new rows here rather than guessing.
 
 ### Resolved
 
+Q1 to Q16 were raised while writing and decomposing the specification. Q17 to
+Q19 were raised by the **test-engineer**, while encoding the acceptance
+criteria as executable tests, at the points where a test could not be written
+because the boundary was unstated. That provenance is worth keeping: it is
+evidence that writing the tests first does the job it is there to do.
+
 | #  | Question                                          | Resolution                                                                 |
 | -- | ------------------------------------------------- | -------------------------------------------------------------------------- |
 | Q1 | Multiple simultaneous pigeons                     | Engage the largest detection, deterministic tie-break. `REQ-TRK-008`, ADR-0003 |
@@ -528,3 +909,26 @@ Add new rows here rather than guessing.
 | Q7 | Spatial association across frames                 | Associate detections into tracks; confirm one track. `REQ-TRK-007`, ADR-0003 |
 | Q8 | Y-axis datum                                      | Y = 0° is the horizon; elevation is never negative. `REQ-AIM-002`            |
 | Q9 | Exclusion zone for this installation              | None configured. The mechanism is retained and tested. `REQ-SAF-003`        |
+| Q10 | Frame pixel encoding                             | Packed RGB888, 8 bits per channel, row stride in bytes. `REQ-DET-004`       |
+| Q11 | Retention of a track that misses a frame         | Discarded immediately; retention changes no confirmation outcome. `REQ-TRK-009`, ADR-0010 |
+| Q12 | Identity of the verification frame's detection   | The **same track** must be re-detected; otherwise `TARGET_LOST`. `REQ-TRK-010`, ADR-0009 |
+| Q13 | State after the fire command                     | Return to `SEARCHING`; the same track may be re-engaged after the cool-down. `REQ-TRK-011` |
+| Q14 | Exclusion zone geometry and cardinality          | One axis-aligned rectangle in angle space, at most one per installation. `REQ-SAF-006` |
+| Q15 | Whether a failed fire command counts             | Any command that was **transmitted** counts, whatever the reply. `REQ-SAF-007`, ADR-0011 |
+| Q16 | Resetting the count when an engagement ends      | Reset, after firing and after abandoning; each engagement earns its own confirmation. `REQ-TRK-012`, ADR-0013 |
+| Q17 | Whether the association radius is inclusive      | Inclusive: `distance <= radius` associates. `REQ-TRK-007`                   |
+| Q18 | When a duration has elapsed, and window edges    | `elapsed >= duration`; windows are half-open. One rule for both limits. `REQ-SAF-005`, ADR-0014 |
+| Q19 | Link statuses other than `OK`                    | Only `OK` grants; every other status refuses with its own reason. `REQ-SAF-008`, ADR-0015 |
+
+### Corrections
+
+Defects in this document found after approval, repaired and recorded rather
+than silently edited: a requirement that has changed is a requirement somebody
+may already have built against.
+
+| #  | Defect                                                                                                                                                                                                                                 | Repair                                                                                                                                                                                                                                              |
+| -- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1 | `REQ-TRK-007`'s acceptance bullet "two detections in successive frames beyond the association radius produce two tracks, each with a count of one" cannot hold under `REQ-TRK-009`: if the detections are in successive frames, the first track is discarded the moment it goes undetected, so the two tracks never coexist. Found by the test-engineer, who could not encode it. | Reworded as a statement about successive frames that is true under immediate discard: a detection beyond the radius from every existing track starts a new track with a count of one, while the track it failed to match is discarded. No same-frame bullet was added; the requirement is about association across frames. |
+| D1 | `REQ-SAF-008` mandates a distinct refusal for every link status that is not `OK`, but two of the four were unreachable: the only pre-send query on the device boundary was a boolean, so a caller deciding whether to fire could express `OK` or unavailable and nothing else. A transport failure or a rejection existed only as the return value of an exchange already made — and the exchange before any fire decision is the aiming command, whose failure abandons the engagement (`REQ-COM-002`) and resets the count (`REQ-TRK-012`), so no fire frame follows it. The rule was correct and dead. Found by the test-engineer, which could reach those branches only through a seam it invented in its own fixtures and flagged as such. | The device boundary was widened rather than the rule narrowed: `REQ-COM-003` requires current health to be queryable, without an exchange, with the full set of statuses, and `REQ-SAF-008` now requires the decision to consult the link rather than accept a status from its caller (ADR-0016). |
+| D2 | `track.hpp` claimed that a zero association radius "matches nothing but a detection exactly on a track's centroid, which no real detector produces twice". True of a camera, false of every simulated detector, and under `REQ-TRK-007`'s inclusive radius an uncalibrated rig can therefore associate, confirm and reach `TARGET_LOCKED`. Safety held — the empty envelope commands nothing — but the stated reason for it did not. Found by the test-engineer while asserting the inclusive radius. | The header's claim was corrected, and `REQ-SAF-004` now states where the inertness of an uncalibrated rig actually lives: the empty default envelope alone, with no reliance on the tracker staying quiet. |
+| D3 | ADR-0015 closes the `LinkStatus` extension gap with a `switch` that has no `default:` label, relying on `-Wswitch` under `-Werror`. Nothing enforces the absence of that label, so a future `default:` reopens the gap silently. Found by the test-engineer, which correctly identified `scripts/arch-check.sh` as where the check belongs and correctly declined to write it. | **Outstanding.** Referred to the maintainer, who owns `scripts/`, to be added test-first. The architect's requested rejection rule is recorded in the hand-over report; no requirement text changes, because the rule is an enforcement mechanism for `REQ-SAF-008`, not a new obligation. |
