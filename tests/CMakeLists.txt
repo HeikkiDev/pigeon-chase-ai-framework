@@ -8,7 +8,9 @@
 # tests/raspberry/ carries "unit;model" so the real detector can be run or
 # excluded deliberately (ADR-0019) — passes its own set.
 function(pigeon_add_test name)
-  cmake_parse_arguments(ARG "" "LABELS" "SOURCES;LIBS" ${ARGN})
+  # LABELS is multi-valued: ${ARGN} has already split "unit;model" into two
+  # arguments, and a one-value keyword would keep only "unit".
+  cmake_parse_arguments(ARG "" "" "SOURCES;LIBS;LABELS" ${ARGN})
 
   if(NOT ARG_LABELS)
     set(ARG_LABELS "unit")
@@ -23,9 +25,12 @@ function(pigeon_add_test name)
       ${ARG_LIBS}
   )
 
+  # Discovery runs the binary to list its tests. Under ASan/UBSan the first
+  # launch can exceed CMake's 5 s default, which fails a test that never ran.
   gtest_discover_tests(${name}
     PROPERTIES LABELS "${ARG_LABELS}"
     DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
   )
 endfunction()
 
