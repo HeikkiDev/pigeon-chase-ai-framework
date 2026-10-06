@@ -62,6 +62,9 @@ endif()
 if(ncnn_FOUND)
   message(STATUS "ncnn found (${ncnn_DIR}): building raspberry/")
   add_subdirectory(raspberry)
+  # The hand-run throughput benchmark, which needs the real detector and is
+  # never registered with CTest (ADR-0019 §9).
+  add_subdirectory(tools)
 elseif("$ENV{PIGEON_STRICT_TOOLS}" STREQUAL "1")
   message(FATAL_ERROR
     "ncnn not found and PIGEON_STRICT_TOOLS=1. Install it with: brew install ncnn")
