@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install toolchain
-        run: brew install ninja llvm
+        run: brew install ninja llvm ncnn
 
       - name: Cache CMake dependencies
         uses: actions/cache@v4
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install toolchain
-        run: brew install ninja
+        run: brew install ninja ncnn
 
       # Undefined behaviour in the safety-critical path must fail the build,
       # not surface on a roof in the rain.
