@@ -911,12 +911,12 @@ than a new obligation on `core/`.
 Unresolved specification gaps. **Agents must not invent answers to these** —
 raise them with the maintainer.
 
-*One outstanding*, raised by the test-engineer while encoding ADR-0019 as
-executable tests. Add new rows here rather than guessing.
+*None outstanding.* Every question raised so far has been resolved; see below.
+Add new rows here rather than guessing.
 
 | #  | Question | Blocks |
 | -- | -------- | ------ |
-| Q25 | ADR-0019 fixes the inference thread count in `NcnnDetectorSettings` ("fixed, never derived from the machine") but does not say what a **nonsensical** thread count means. Is `num_threads <= 0` a load failure — and under which `ModelLoadStatus`, since none of the five names a bad setting — or is it clamped to one, or is it undefined and left to the runtime? A detector that silently accepts `0` has a configuration fault nothing reports; a new status is an interface change. | A test for an invalid thread count in `tests/raspberry/`. The nominal and multi-thread cases are covered; this one is deliberately unwritten, because choosing an answer here would be inventing a requirement. |
+| —  | —        | —      |
 
 ### Resolved
 
@@ -927,6 +927,8 @@ because the boundary was unstated. That provenance is worth keeping: it is
 evidence that writing the tests first does the job it is there to do. Q20 to
 Q24 were raised by the **architect**, before and while choosing a detection
 library (ADR-0019), and answered by the maintainer directly on 2026-10-04.
+Q25 was raised by the **test-engineer** while encoding ADR-0019 as executable
+tests, and answered by the maintainer on 2026-10-05.
 
 | #  | Question                                          | Resolution                                                                 |
 | -- | ------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -954,6 +956,7 @@ library (ADR-0019), and answered by the maintainer directly on 2026-10-04.
 | Q22 | Deployment operating system                      | **64-bit Raspberry Pi OS (arm64)**. Maintainer ruling, 2026-10-04. The upstream Pi 3B figure therefore transfers, and the benchmark runs on arm64. `REQ-DET-003`, architecture "Raspberry Pi", ADR-0019 |
 | Q23 | Whether any bird is an acceptable target         | **Yes**, any bird is an acceptable target for now. Maintainer ruling, 2026-10-04: the COCO `bird` proxy class is accepted and pigeon-only fine-tuning is not required. ADR-0019 |
 | Q24 | Camera capture resolution                        | **640 × 480**. Maintainer ruling, 2026-10-04. A deployment value, listed under Configured parameters; distinct from the model's own input size. `REQ-DET-004`, ADR-0019 |
+| Q25 | Inference thread count of zero or less        | **Clamped to one thread.** Maintainer ruling, 2026-10-05: a `num_threads <= 0` in `NcnnDetectorSettings` is treated as 1; it is not a load failure and adds no `ModelLoadStatus`. ADR-0019. |
 
 ### Corrections
 
