@@ -146,6 +146,81 @@ TEST(NcnnDetectorLoad, VendoredModelLoadsAndYieldsADetector) {
 }
 
 // ---------------------------------------------------------------------------
+// Non-positive thread counts — maintainer ruling Q25, 2026-10-05.
+//
+// "A `num_threads <= 0` in `NcnnDetectorSettings` is treated as 1; it is not a
+// load failure and adds no `ModelLoadStatus`." The ruling has two halves and
+// both are asserted below: the load still succeeds, and the detector it hands
+// back answers like the one-thread detector it was clamped to. A deployment
+// whose configuration file carried a zero would otherwise either fail to start
+// or start with ncnn's own machine-derived default, and the second of those is
+// exactly the host dependence `REQ-DEV-002` forbids.
+// ---------------------------------------------------------------------------
+
+// Encodes Q25: zero threads loads, rather than being rejected as a bad value.
+// Verifies: REQ-DET-001, REQ-DEV-002.
+TEST(NonPositiveThreadCount, ZeroThreadsStillLoadsADetector) {
+  NcnnDetectorSettings settings = calibrated_settings();
+  settings.num_threads = 0;
+
+  const NcnnDetector::LoadResult result = NcnnDetector::load(settings);
+
+  EXPECT_EQ(result.status, ModelLoadStatus::OK)
+      << "Q25: a thread count of zero is clamped to one, not reported as a load failure.";
+  EXPECT_NE(result.detector, nullptr) << "An OK status must carry a usable detector.";
+}
+
+// Encodes Q25: the ruling says `<= 0`, not `== 0`, so a negative value — the
+// shape a mis-parsed or hand-edited configuration takes — is clamped the same
+// way. Verifies: REQ-DET-001, REQ-DEV-002.
+TEST(NonPositiveThreadCount, NegativeThreadsStillLoadsADetector) {
+  NcnnDetectorSettings settings = calibrated_settings();
+  settings.num_threads = -4;
+
+  const NcnnDetector::LoadResult result = NcnnDetector::load(settings);
+
+  EXPECT_EQ(result.status, ModelLoadStatus::OK)
+      << "Q25: a negative thread count is clamped to one, not reported as a load failure.";
+  EXPECT_NE(result.detector, nullptr) << "An OK status must carry a usable detector.";
+}
+
+// Encodes Q25's "treated as 1": loading is only half the ruling. A detector
+// that loaded but then ran on some machine-derived thread count would satisfy
+// the status assertions above and still be wrong. Only the verdict is
+// compared, never a coordinate: ADR-0019 records that the thread count changes
+// numerics, so pinning a centroid across thread counts would be a test of this
+// Mac. Verifies: REQ-DET-001, REQ-DEV-002.
+TEST(NonPositiveThreadCount, ClampedDetectorGivesTheSameVerdictAsOneThread) {
+  const PpmImage bird = load_ppm(fixture_path("pigeon_640x480.ppm"));
+  const PpmImage wall = load_ppm(fixture_path("brick_wall_320x240.ppm"));
+  ASSERT_TRUE(bird.loaded()) << "fixture missing: pigeon_640x480.ppm";
+  ASSERT_TRUE(wall.loaded()) << "fixture missing: brick_wall_320x240.ppm";
+
+  const NcnnDetector::LoadResult one_thread = NcnnDetector::load(calibrated_settings());
+  ASSERT_EQ(one_thread.status, ModelLoadStatus::OK);
+  ASSERT_NE(one_thread.detector, nullptr);
+
+  const DetectionResult bird_verdict = one_thread.detector->detect(bird.view()).result();
+  const DetectionResult wall_verdict = one_thread.detector->detect(wall.view()).result();
+  ASSERT_EQ(bird_verdict, DetectionResult::FOUND)
+      << "The bird fixture must be detectable at one thread, or this test proves nothing.";
+
+  for (const int threads : {0, -1, -8}) {
+    NcnnDetectorSettings settings = calibrated_settings();
+    settings.num_threads = threads;
+
+    const NcnnDetector::LoadResult clamped = NcnnDetector::load(settings);
+    ASSERT_EQ(clamped.status, ModelLoadStatus::OK) << "num_threads = " << threads;
+    ASSERT_NE(clamped.detector, nullptr) << "num_threads = " << threads;
+
+    EXPECT_EQ(clamped.detector->detect(bird.view()).result(), bird_verdict)
+        << "num_threads = " << threads << " must answer like num_threads = 1.";
+    EXPECT_EQ(clamped.detector->detect(wall.view()).result(), wall_verdict)
+        << "num_threads = " << threads << " must answer like num_threads = 1.";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Inert by default — ADR-0008, ADR-0019 §5.
 // ---------------------------------------------------------------------------
 
