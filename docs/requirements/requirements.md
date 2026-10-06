@@ -99,6 +99,15 @@ total and testable.
 * The detector never returns any other value and never throws for a well-formed
   frame.
 
+**Note — no detection-quality target (maintainer ruling, 2026-10-04, Q20).**
+There is deliberately **no** accuracy, precision, recall or false-positive
+requirement anywhere in this document: *"Accuracy will depend on how the object
+detection library scores, not important."* The acceptance bullets above are a
+contract on the *shape* of the answer — two values, total, never throwing — and
+not on how often the answer is right. Detection quality is a property of
+whichever model is loaded. **Agents must not invent a threshold, a hit rate or
+a benchmark score and present it as a requirement** (ADR-0019).
+
 ### REQ-DET-002 — Detector is independent of image acquisition
 
 **Statement:** The detection component SHALL accept frames through an interface
@@ -114,8 +123,9 @@ and SHALL NOT depend on any camera, GPIO or platform-specific API.
 
 ### REQ-DET-003 — Detection throughput
 
-**Statement:** On the deployment target (Raspberry Pi 3B, 1 GB RAM) the
-detection pipeline SHALL process at least **5 frames per second**.
+**Statement:** On the deployment target (Raspberry Pi 3B, 1 GB RAM, 64-bit
+Raspberry Pi OS) the detection **model** SHALL perform inference on at least
+**5 frames per second**.
 
 **Rationale:** Confirmation needs three consecutive frames and verification
 needs a fourth, so the engagement latency is roughly four frame periods. At
@@ -124,9 +134,19 @@ it was seen.
 
 **Acceptance:**
 
-* Measured on target hardware, sustained throughput is at least 5 FPS.
+* Measured on target hardware, sustained **model inference** throughput is at
+  least 5 FPS.
 * This is verified by a hardware-in-the-loop test, which stays out of the
   default suite and out of CI (`REQ-DEV-003`).
+
+**Note — what is measured, and on what (maintainer ruling, 2026-10-04, Q21 and
+Q22).** The measurement is **model inference only**, not the full capture →
+colour conversion → inference → association → state machine → command pipeline.
+The statement was reworded from "the detection pipeline SHALL process" to "the
+detection model SHALL perform inference on" to say so; the figure is otherwise
+unchanged. The deployment OS is **64-bit Raspberry Pi OS (arm64)**, which is
+the platform the benchmark must run on. Approved by the maintainer through
+those answers; recorded in ADR-0019.
 
 ### REQ-DET-004 — Frame pixel format
 
@@ -860,6 +880,7 @@ is a reference. Defaults are the values the system ships with.
 | Cool-down after firing     | 2 s            | `REQ-SAF-005` |
 | Maximum engagement rate    | 6 / minute     | `REQ-SAF-005` |
 | Exclusion zone             | none configured, at most one | `REQ-SAF-003`, `REQ-SAF-006` |
+| Camera capture resolution  | 640 × 480      | `REQ-DET-004` (Q24) |
 | Frame pixel format         | RGB888, not configurable | `REQ-DET-004` |
 | Track retention            | none; discarded on a missed frame | `REQ-TRK-009` |
 
@@ -877,6 +898,13 @@ The reference installation configures no exclusion zone (Q9), and an
 installation may configure at most one (Q14). The mechanism is still required
 and still tested, because the zone is a property of where the rig is mounted,
 and rigs get moved.
+
+The camera delivers **640 × 480** frames to the detector (maintainer ruling,
+2026-10-04, Q24). That is the capture resolution only: the detection model's
+own input size is a property of the model and is not this parameter. No
+`core/` behaviour depends on it — `FrameView` carries width, height and stride
+per frame (`REQ-DET-004`) — so it is a deployment value recorded here rather
+than a new obligation on `core/`.
 
 ## Open questions
 
@@ -896,7 +924,9 @@ Q1 to Q16 were raised while writing and decomposing the specification. Q17 to
 Q19 were raised by the **test-engineer**, while encoding the acceptance
 criteria as executable tests, at the points where a test could not be written
 because the boundary was unstated. That provenance is worth keeping: it is
-evidence that writing the tests first does the job it is there to do.
+evidence that writing the tests first does the job it is there to do. Q20 to
+Q24 were raised by the **architect**, before and while choosing a detection
+library (ADR-0019), and answered by the maintainer directly on 2026-10-04.
 
 | #  | Question                                          | Resolution                                                                 |
 | -- | ------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -919,6 +949,11 @@ evidence that writing the tests first does the job it is there to do.
 | Q17 | Whether the association radius is inclusive      | Inclusive: `distance <= radius` associates. `REQ-TRK-007`                   |
 | Q18 | When a duration has elapsed, and window edges    | `elapsed >= duration`; windows are half-open. One rule for both limits. `REQ-SAF-005`, ADR-0014 |
 | Q19 | Link statuses other than `OK`                    | Only `OK` grants; every other status refuses with its own reason. `REQ-SAF-008`, ADR-0015 |
+| Q20 | Required detection accuracy                       | **None.** Maintainer ruling, 2026-10-04: accuracy follows from whichever model is loaded and is not specified. No accuracy, precision, recall or false-positive target exists or may be invented. `REQ-DET-001` note, ADR-0019 |
+| Q21 | What `REQ-DET-003` measures                      | **Model inference only**, not the full capture → conversion → inference → command pipeline. Maintainer ruling, 2026-10-04. The statement was reworded accordingly. `REQ-DET-003`, ADR-0019 |
+| Q22 | Deployment operating system                      | **64-bit Raspberry Pi OS (arm64)**. Maintainer ruling, 2026-10-04. The upstream Pi 3B figure therefore transfers, and the benchmark runs on arm64. `REQ-DET-003`, architecture "Raspberry Pi", ADR-0019 |
+| Q23 | Whether any bird is an acceptable target         | **Yes**, any bird is an acceptable target for now. Maintainer ruling, 2026-10-04: the COCO `bird` proxy class is accepted and pigeon-only fine-tuning is not required. ADR-0019 |
+| Q24 | Camera capture resolution                        | **640 × 480**. Maintainer ruling, 2026-10-04. A deployment value, listed under Configured parameters; distinct from the model's own input size. `REQ-DET-004`, ADR-0019 |
 
 ### Corrections
 
