@@ -57,6 +57,11 @@ readonly NONDETERMINISM='(system_clock|steady_clock|high_resolution_clock)[[:spa
 # Physical device nodes, in any layer that is meant to run without hardware.
 readonly DEVICE_PATHS='/dev/tty|/dev/video|/dev/i2c|/dev/spidev|/dev/serial'
 
+# The model runtime. ADR-0019 confines it to one translation unit in
+# raspberry/src/; core/ must not see it and tests reach the detector only
+# through its standard-library-only public header.
+readonly MODEL_RUNTIME_INCLUDES='ncnn/'
+
 # Only first-party C++ sources are scanned. Shell, CMake and Markdown files may
 # legitimately mention a forbidden header by name — this file does.
 sources_in() {
@@ -141,6 +146,8 @@ scan "$ROOT/core"  'non-deterministic call in core/ (REQ-DEV-002)'       "$NONDE
 scan "$ROOT/core"  'device path in core/ (REQ-DEV-001)'                  "$DEVICE_PATHS"
 scan "$ROOT/tests" 'hardware header in the default test suite (REQ-DEV-003)' "$HARDWARE_INCLUDES" 1
 scan "$ROOT/tests" 'device path in the default test suite (REQ-DEV-003)' "$DEVICE_PATHS"
+scan "$ROOT/core"  'model runtime header in core/ (ADR-0019, REQ-DET-002)' "$MODEL_RUNTIME_INCLUDES" 1
+scan "$ROOT/tests" 'model runtime header in tests/ (ADR-0019)'          "$MODEL_RUNTIME_INCLUDES" 1
 check_refusal_switch
 
 if [[ "$violations" -gt 0 ]]; then
