@@ -911,12 +911,12 @@ than a new obligation on `core/`.
 Unresolved specification gaps. **Agents must not invent answers to these** —
 raise them with the maintainer.
 
-*None outstanding.* Every question raised so far has been resolved; see below.
-Add new rows here rather than guessing.
+*One outstanding*, raised by the test-engineer while encoding ADR-0019 as
+executable tests. Add new rows here rather than guessing.
 
 | #  | Question | Blocks |
 | -- | -------- | ------ |
-| —  | —        | —      |
+| Q25 | ADR-0019 fixes the inference thread count in `NcnnDetectorSettings` ("fixed, never derived from the machine") but does not say what a **nonsensical** thread count means. Is `num_threads <= 0` a load failure — and under which `ModelLoadStatus`, since none of the five names a bad setting — or is it clamped to one, or is it undefined and left to the runtime? A detector that silently accepts `0` has a configuration fault nothing reports; a new status is an interface change. | A test for an invalid thread count in `tests/raspberry/`. The nominal and multi-thread cases are covered; this one is deliberately unwritten, because choosing an answer here would be inventing a requirement. |
 
 ### Resolved
 
