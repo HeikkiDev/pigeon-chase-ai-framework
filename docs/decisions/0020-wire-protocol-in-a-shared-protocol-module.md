@@ -68,8 +68,9 @@ Constraints:
 
 2. **Freestanding subset.** Code in `protocol/` uses only fixed-width integers,
    fixed-size buffers owned by the caller, no allocation, no exceptions, no
-   RTTI, no virtual functions, no floating point. It must compile under the
-   C++ standard the Arduino toolchain supports (to be confirmed, see Q28).
+   RTTI, no virtual functions, no floating point. It must compile as C++17 for
+   the **Arduino Uno** (AVR: 16-bit `int`, 2 KB RAM; Q28), so no type may
+   assume `int` is 32 bits.
 
 3. **Framing** (proposed, to be specified fully in
    `docs/architecture/protocol.md`):
@@ -86,12 +87,12 @@ Constraints:
 
    | Direction       | Type        | Payload                                  | Purpose                         |
    | --------------- | ----------- | ---------------------------------------- | ------------------------------- |
-   | host → device   | `AIM`       | x, y: `int16` centidegrees               | `send_aiming_command`           |
+   | host → device   | `AIM`       | x, y: `int16` centidegrees (0.01°, Q27)  | `send_aiming_command`           |
    | host → device   | `FIRE`      | duration: `uint16` ms                    | `send_fire_command`             |
    | host → device   | `SAFE`      | none                                     | `send_safe_state_command`       |
    | device → host   | `ACK`       | echoed `SEQ`                             | command accepted                |
    | device → host   | `NAK`       | echoed `SEQ`, reason (`u8`)              | command understood and refused  |
-   | device → host   | `HEARTBEAT` | counter (`u16`), actuator-active flag    | liveness for `health()`         |
+   | device → host   | `HEARTBEAT` | counter (`u16`), actuator-active flag    | liveness for `health()`, every 100 ms (Q29) |
 
 5. **Mapping to `LinkStatus`** (the host adapter's job, stated here so both
    sides agree):
@@ -100,15 +101,20 @@ Constraints:
    | ------------------------------------------------------- | ------------------- |
    | `ACK` with matching `SEQ`                                | `OK`                |
    | `NAK` with matching `SEQ`                                | `REJECTED`          |
-   | Bad CRC, bad length, unknown type, wrong `SEQ`, no reply within the reply timeout | `TRANSPORT_FAILURE` |
-   | Port closed, or no `HEARTBEAT` within the heartbeat timeout | `UNAVAILABLE`       |
+   | Bad CRC, bad length, unknown type, wrong `SEQ`, no reply within **50 ms** (Q30) | `TRANSPORT_FAILURE` |
+   | Port closed, or no `HEARTBEAT` for **500 ms** (Q29)      | `UNAVAILABLE`       |
 
 6. **No retransmission of `FIRE`.** A transmitted fire command counts whatever
    the reply (`REQ-SAF-007`, ADR-0011); resending it after a lost `ACK` could
    double a burst. The host never retries `FIRE`. Whether `AIM` and `SAFE` may
    be retried is left open (not needed for `REQ-COM-001`).
 
-7. **Decoder shape.** An incremental, byte-at-a-time state machine over a
+7. **The firmware refuses, it does not correct.** An `AIM` outside the
+   firmware's own envelope is answered with `NAK` and the servos do not move
+   (Q26). The firmware's own fire bound is 500 ms (Q31); whether a longer
+   `FIRE` is truncated or refused is still open (Q32).
+
+8. **Decoder shape.** An incremental, byte-at-a-time state machine over a
    caller-owned buffer, returning a value (`frame ready`, `need more`,
    `discarded: <reason>`). Every input sequence of any length is accepted
    without undefined behaviour. The same decoder runs on both sides.
@@ -142,9 +148,13 @@ Constraints:
 * `REQ-COM-001`'s explanatory note ("implemented in `raspberry/` and
   `arduino/`") needs rewording. Its **statement** and acceptance criteria are
   unchanged.
-* Centidegrees in `int16` give ±327.67° at 0.01° resolution. Enough for the
-  envelope (X ∈ [−90°, +90°], Y ∈ [0°, +45°]), but it is a decision about
-  precision (Q27).
+* Centidegrees in `int16` give ±327.67° at 0.01° resolution (Q27): far finer
+  than a hobby servo can position, and enough range for the envelope
+  (X ∈ [−90°, +90°], Y ∈ [0°, +45°]).
+* Refusing rather than clamping (Q26) means a host whose envelope is wider
+  than the firmware's abandons the engagement instead of firing at the
+  nearest allowed angle. That is the intended behaviour: the mismatch is
+  reported, not hidden.
 * Until `arduino/` exists, "the firmware compiles it" is a promise. The
   freestanding rule is enforced by the gate (see Verification), not by an AVR
   build.
@@ -152,29 +162,35 @@ Constraints:
 ### Follow-up work
 
 * Specify the protocol in full in `docs/architecture/protocol.md`.
-* Answer Q26–Q31 (below) before the values they block are written down.
+* Answer Q32 before firmware `FIRE` handling is specified.
 * Host adapter `SerialActuatorLink` in `raspberry/` (needs a serial transport
   seam; separate ADR or an extension of this one).
 * Firmware in `arduino/`.
 * When `real-detector` merges, reconcile the `raspberry/` CMake gating so the
   serial adapter does not depend on ncnn.
 
-## Open questions raised
+## Questions raised, and the maintainer's rulings
 
-These are added to the Open Questions table in
-`docs/requirements/requirements.md`. None is answered here.
+Raised while writing this ADR and answered by the maintainer on 2026-11-25.
+Recorded in the Resolved table of `docs/requirements/requirements.md`.
+
+| #   | Question | Ruling |
+| --- | -------- | ------ |
+| Q26 | Clamp or refuse out-of-envelope angles in firmware? `ActuatorLink`'s header said "clamps them again"; `LinkStatus::REJECTED` said the device refuses them. | **Refuse** with `NAK`. The `ActuatorLink` header and `arduino.instructions.md` were corrected to match. |
+| Q27 | Angle resolution on the wire. | **0.01°** (centidegrees in `int16`). |
+| Q28 | Arduino board and toolchain. | **Arduino Uno, C++17.** |
+| Q29 | Heartbeat interval and host timeout. | **100 ms** interval; `UNAVAILABLE` after **500 ms** without one. |
+| Q30 | Reply timeout. | **50 ms**, then `TRANSPORT_FAILURE`. |
+| Q31 | Firmware's own fire bound. | **500 ms**, the same as the host's default maximum. |
+
+Still open, in the Open Questions table:
 
 | #   | Question | Blocks |
 | --- | -------- | ------ |
-| Q26 | **Clamp or refuse out-of-envelope angles in firmware?** `ActuatorLink`'s header says the receiver "clamps them again"; `LinkStatus::REJECTED` says the device refuses "angles outside its own envelope". Both cannot be the behaviour. | `NAK` reasons; `REQ-AIM-002` on the device side |
-| Q27 | **Angle resolution on the wire.** Is 0.01° (centidegrees in `int16`) acceptable? | `AIM` payload |
-| Q28 | **Arduino board and toolchain.** Which board (AVR Uno/Nano, or ARM/ESP32) and which C++ standard does its toolchain support? | The freestanding subset `protocol/` must compile under |
-| Q29 | **Heartbeat interval and host timeout.** How often does the device send `HEARTBEAT`, and after how long without one does `health()` report `UNAVAILABLE`? | `REQ-COM-003` on real hardware |
-| Q30 | **Reply timeout.** How long does the host wait for `ACK`/`NAK` before reporting `TRANSPORT_FAILURE`? | `send_*` on real hardware |
-| Q31 | **Firmware's own fire bound.** Is the firmware's independent maximum burst also 500 ms, or a different (larger, hard) ceiling above the host's configured maximum? | `REQ-SAF-001` third acceptance bullet; `NAK` vs truncation |
+| Q32 | Does the firmware **truncate** a `FIRE` longer than 500 ms and reply `ACK`, or **refuse** it with `NAK`? | Firmware `FIRE` handling, `NAK` reasons |
 
-Also open, but not blocking this ADR: serial baud rate (a deployment value),
-and whether `AIM`/`SAFE` may be retried.
+Not blocking: the serial baud rate (a deployment value), and whether `AIM` and
+`SAFE` may be retried.
 
 ## Verification
 

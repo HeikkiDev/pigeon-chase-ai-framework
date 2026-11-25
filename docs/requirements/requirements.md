@@ -850,6 +850,10 @@ is a reference. Defaults are the values the system ships with.
 | Track association radius   | *uncalibrated* | `REQ-TRK-007` |
 | Verification deadline      | next frame     | `REQ-TRK-004` |
 | Detection throughput       | 5 FPS          | `REQ-DET-003` |
+| Heartbeat interval         | 100 ms         | `REQ-COM-003` (Q29) |
+| Heartbeat timeout          | 500 ms         | `REQ-COM-003` (Q29) |
+| Command reply timeout      | 50 ms          | `REQ-COM-001` (Q30) |
+| Firmware fire bound        | 500 ms         | `REQ-SAF-001` (Q31) |
 | Camera horizontal FOV      | *uncalibrated* | `REQ-AIM-001` |
 | Camera vertical FOV        | *uncalibrated* | `REQ-AIM-001` |
 | Boresight offset           | *uncalibrated* | `REQ-AIM-001` |
@@ -883,18 +887,12 @@ and rigs get moved.
 Unresolved specification gaps. **Agents must not invent answers to these** —
 raise them with the maintainer.
 
-Add new rows here rather than guessing. Q26 to Q31 were raised by the
-**architect** while designing the wire protocol (ADR-0020, Proposed). Q20 to
-Q25 are reserved by the unmerged `real-detector` branch.
+Add new rows here rather than guessing. Q20 to Q25 are reserved by the
+unmerged `real-detector` branch.
 
 | #   | Question | Blocks |
 | --- | -------- | ------ |
-| Q26 | Out-of-envelope angles in firmware: clamp or refuse? `ActuatorLink`'s header says the receiver clamps again; `LinkStatus::REJECTED` says the device refuses angles outside its envelope. | `NAK` reasons; `REQ-AIM-002` device side |
-| Q27 | Angle resolution on the wire: is 0.01° (centidegrees in `int16`) acceptable? | `AIM` payload, `REQ-COM-001` |
-| Q28 | Arduino board and toolchain: which board, and which C++ standard does its compiler support? | The freestanding subset `protocol/` compiles under |
-| Q29 | Heartbeat interval, and how long without one before `health()` reports `UNAVAILABLE`. | `REQ-COM-003` on hardware |
-| Q30 | Reply timeout: how long the host waits for `ACK`/`NAK` before `TRANSPORT_FAILURE`. | `send_*` on hardware |
-| Q31 | Firmware's own fire bound: also 500 ms, or a separate hard ceiling above the host's configured maximum? | `REQ-SAF-001` third acceptance bullet |
+| Q32 | A `FIRE` longer than the firmware's 500 ms bound (Q31): does the firmware **truncate** it to 500 ms and reply `ACK`, or **refuse** it with `NAK`? `REQ-SAF-001` allows either; Q26 chose refusal for angles. | `FIRE` handling in firmware, `NAK` reasons |
 
 ### Resolved
 
@@ -902,7 +900,9 @@ Q1 to Q16 were raised while writing and decomposing the specification. Q17 to
 Q19 were raised by the **test-engineer**, while encoding the acceptance
 criteria as executable tests, at the points where a test could not be written
 because the boundary was unstated. That provenance is worth keeping: it is
-evidence that writing the tests first does the job it is there to do.
+evidence that writing the tests first does the job it is there to do. Q26 to
+Q31 were raised by the **architect** while designing the wire protocol
+(ADR-0020) and answered by the maintainer on 2026-11-25.
 
 | #  | Question                                          | Resolution                                                                 |
 | -- | ------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -925,6 +925,12 @@ evidence that writing the tests first does the job it is there to do.
 | Q17 | Whether the association radius is inclusive      | Inclusive: `distance <= radius` associates. `REQ-TRK-007`                   |
 | Q18 | When a duration has elapsed, and window edges    | `elapsed >= duration`; windows are half-open. One rule for both limits. `REQ-SAF-005`, ADR-0014 |
 | Q19 | Link statuses other than `OK`                    | Only `OK` grants; every other status refuses with its own reason. `REQ-SAF-008`, ADR-0015 |
+| Q26 | Out-of-envelope angles in firmware               | **Refuse.** Maintainer ruling, 2026-11-25: the firmware replies `NAK` and does not move; it never clamps. Host-side clamping (`REQ-AIM-002`) is unchanged. ADR-0020 |
+| Q27 | Angle resolution on the wire                     | **0.01°**, as centidegrees in `int16`. Maintainer ruling, 2026-11-25. ADR-0020 |
+| Q28 | Arduino board and toolchain                      | **Arduino Uno, C++17.** Maintainer ruling, 2026-11-25. `protocol/` targets AVR: 16-bit `int`, 2 KB RAM. ADR-0020 |
+| Q29 | Heartbeat interval and timeout                   | **Every 100 ms; `UNAVAILABLE` after 500 ms without one.** Maintainer ruling, 2026-11-25. `REQ-COM-003`, ADR-0020 |
+| Q30 | Reply timeout                                    | **50 ms**, then `TRANSPORT_FAILURE`. Maintainer ruling, 2026-11-25. ADR-0020 |
+| Q31 | Firmware's own fire bound                        | **500 ms**, the same as the host's default maximum. Maintainer ruling, 2026-11-25. Whether a longer request is truncated or refused is Q32. `REQ-SAF-001`, ADR-0020 |
 
 ### Corrections
 

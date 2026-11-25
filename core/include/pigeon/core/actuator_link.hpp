@@ -10,10 +10,11 @@ namespace pigeon::core {
 /// Instruct the actuator system to point the deterrent (`REQ-AIM-001`).
 ///
 /// The angles are in the servo frame and are **already clamped** to the
-/// mechanical envelope by the sender (`REQ-AIM-002`). The receiver clamps them
-/// again: safety limits are enforced on both sides of the device boundary, so
-/// that a defect on the commanding side cannot move the rig outside its
-/// envelope.
+/// mechanical envelope by the sender (`REQ-AIM-002`). The receiver checks them
+/// again and **refuses** a command outside its own envelope rather than
+/// clamping it (Q26): safety limits are enforced on both sides of the device
+/// boundary, so that a defect on the commanding side cannot move the rig
+/// outside its envelope, and is reported rather than quietly corrected.
 struct AimingCommand {
   /// Where to point, in the servo frame.
   ServoAngles angles{};
@@ -95,8 +96,9 @@ enum class LinkStatus : std::uint8_t {
 /// * **Safe on construction and on destruction.** The water actuator is
 ///   inactive when the link comes up and inactive when it goes away
 ///   (`REQ-SAF-004`). Destruction must not leave a valve open.
-/// * **Re-check what it is asked to do.** Angles are clamped again on receipt
-///   and a burst longer than the device's own bound is refused
+/// * **Re-check what it is asked to do.** Angles outside the device's own
+///   envelope are refused, not clamped (Q26), and a burst longer than the
+///   device's own bound is not obeyed
 ///   (`REQ-AIM-002`, `REQ-SAF-001`). The receiving side does not trust the
 ///   sending side.
 /// * **Report failure, never hide it.** Every operation returns a

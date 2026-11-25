@@ -21,9 +21,9 @@ safety-critical firmware, not as a sketch.
 
 These are not negotiable.
 
-- **Enforce limits locally.** Clamp every requested angle to the mechanical
-  envelope in firmware. Never trust the host to have clamped it
-  (`REQ-AIM-002`).
+- **Enforce limits locally.** Check every requested angle against the
+  mechanical envelope in firmware and **refuse** (`NAK`) one outside it; never
+  clamp it (Q26). Never trust the host to have clamped it (`REQ-AIM-002`).
 - **Bound the fire duration.** The water actuator self-deactivates after the
   configured maximum, without needing a stop command (`REQ-SAF-001`).
 - **Fail safe.** On reset, on malformed input, on watchdog expiry, and on loss
