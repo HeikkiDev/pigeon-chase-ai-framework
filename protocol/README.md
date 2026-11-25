@@ -7,7 +7,7 @@ format.
 
 **Status:** planned. Nothing is built from this folder yet. The design is in
 [ADR-0020](../docs/decisions/0020-wire-protocol-in-a-shared-protocol-module.md)
-(Proposed). The full wire specification will live in
+(Accepted). The full wire specification will live in
 `docs/architecture/protocol.md`.
 
 ## Rules for code in this folder

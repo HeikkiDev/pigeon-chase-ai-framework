@@ -1,6 +1,6 @@
 # ADR-0020 — The wire protocol lives in a shared, freestanding `protocol/` module
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-25
 **Affects:** `REQ-COM-001`, `REQ-COM-002`, `REQ-COM-003`, `REQ-SAF-001`,
 `REQ-SAF-004`, `REQ-AIM-002`, `REQ-SAF-008`; new module `protocol/`;
