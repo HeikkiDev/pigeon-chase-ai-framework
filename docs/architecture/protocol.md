@@ -172,6 +172,17 @@ A received packet is **malformed** if any of these holds:
 * The CRC does not match.
 * A reserved field value is used (§4.5, §4.6).
 
+The receiver checks each condition as soon as it has the bytes to do so, and
+reports the packet malformed at that byte:
+
+| Condition                                   | Detected at          |
+| ------------------------------------------- | -------------------- |
+| `TYPE` reserved, or not accepted here       | the `TYPE` byte      |
+| `LEN` greater than 8                        | the `LEN` byte       |
+| `LEN` not the valid length for `TYPE`       | the `LEN` byte       |
+| CRC mismatch                                | the last CRC byte    |
+| Reserved field value (§4.5, §4.6)           | the last CRC byte, only once the CRC has matched |
+
 Handling, on both sides:
 
 * A malformed packet SHALL be discarded whole. Nothing in it is acted on, and

@@ -34,6 +34,7 @@ if(PIGEON_WARNINGS_AS_ERRORS)
 endif()
 
 add_subdirectory(core)
+add_subdirectory(protocol)
 
 if(PIGEON_BUILD_TESTS)
   enable_testing()

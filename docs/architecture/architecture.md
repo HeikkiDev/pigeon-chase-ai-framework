@@ -263,7 +263,7 @@ manual and this document owns the product description.
 | Module       | Responsibility                                                | May depend on          |
 | ------------ | ------------------------------------------------------------- | ---------------------- |
 | `core/`      | Detection contracts, target state machine, targeting maths, command generation | C++ standard library only |
-| `protocol/`  | Wire protocol: packet encoding and decoding, shared by both devices (ADR-0020) | Nothing (`<cstdint>`, `<cstddef>` only) |
+| `protocol/`  | Wire protocol: packet encoding and decoding, shared by both devices (ADR-0020) | Nothing (`<stdint.h>`, `<stddef.h>` only) |
 | `raspberry/` | Camera capture, model runtime, serial host side               | `core/`, `protocol/`   |
 | `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries, `protocol/` |
 | `tests/`     | Verification of the above using simulated implementations     | `core/`, `protocol/`, GoogleTest |

@@ -52,8 +52,11 @@ Constraints:
 `protocol/`, which both the host and the firmware compile.**
 
 1. **Location and dependencies.** `protocol/include/pigeon/protocol/` and
-   `protocol/src/`. It depends on nothing: not on `core/`, not on the standard
-   library beyond `<cstdint>` and `<cstddef>`. Dependency direction:
+   `protocol/src/`. It depends on nothing: not on `core/`, and not on any
+   header beyond `<stdint.h>` and `<stddef.h>`. (Originally written as
+   `<cstdint>` and `<cstddef>`; corrected because avr-gcc ships without a C++
+   standard library, so on the Uno only the C headers exist.) Dependency
+   direction:
 
    ```text
    raspberry/ ──▶ core/
