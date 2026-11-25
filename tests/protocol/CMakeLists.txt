@@ -5,6 +5,8 @@ set(pigeon_protocol_tests
   encode_test
   decode_test
   decode_malformed_test
+  decode_exhaustive_test
+  constants_test
 )
 
 foreach(test IN LISTS pigeon_protocol_tests)
