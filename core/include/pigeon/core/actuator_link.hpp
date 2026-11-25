@@ -26,8 +26,8 @@ struct AimingCommand {
 /// The burst is self-terminating in firmware. The duration here is a request
 /// bounded by the configured maximum; the Arduino applies its own bound
 /// independently, so the burst ends even if the Raspberry Pi stops responding
-/// mid-engagement. A duration above the firmware's bound is truncated or
-/// rejected by the firmware, never obeyed.
+/// mid-engagement. A duration above the firmware's bound is truncated to that
+/// bound and accepted, never obeyed in full (Q32).
 struct FireCommand {
   /// Requested burst length. Defaults to zero — a command that does nothing —
   /// so an uninitialised command cannot open the valve.
@@ -71,8 +71,9 @@ enum class LinkStatus : std::uint8_t {
   /// transport to be sound again.
   TRANSPORT_FAILURE,
   /// The device understood the command and refused it — angles outside its
-  /// own envelope, or a burst longer than its own bound (`REQ-AIM-002`,
-  /// `REQ-SAF-001`). A refusal is a working safety limit, not a fault. As
+  /// own envelope (`REQ-AIM-002`, Q26). An over-long burst is not a refusal:
+  /// the firmware truncates it to its bound and accepts it (`REQ-SAF-001`,
+  /// Q32). A refusal is a working safety limit, not a fault. As
   /// health: the device is answering and rejecting what it is told, which is a
   /// disagreement about limits and not a link to send water over.
   REJECTED,
@@ -98,7 +99,7 @@ enum class LinkStatus : std::uint8_t {
 ///   (`REQ-SAF-004`). Destruction must not leave a valve open.
 /// * **Re-check what it is asked to do.** Angles outside the device's own
 ///   envelope are refused, not clamped (Q26), and a burst longer than the
-///   device's own bound is not obeyed
+///   device's own bound is truncated to it (Q32)
 ///   (`REQ-AIM-002`, `REQ-SAF-001`). The receiving side does not trust the
 ///   sending side.
 /// * **Report failure, never hide it.** Every operation returns a

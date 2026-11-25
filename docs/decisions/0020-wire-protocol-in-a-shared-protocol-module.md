@@ -111,8 +111,10 @@ Constraints:
 
 7. **The firmware refuses, it does not correct.** An `AIM` outside the
    firmware's own envelope is answered with `NAK` and the servos do not move
-   (Q26). The firmware's own fire bound is 500 ms (Q31); whether a longer
-   `FIRE` is truncated or refused is still open (Q32).
+   (Q26). The firmware's own fire bound is 500 ms (Q31); a longer `FIRE` is
+   **truncated** to 500 ms and answered with `ACK` (Q32). The two differ on
+   purpose: a wrong angle points water somewhere unintended, while a
+   too-long burst only needs to be shortened.
 
 8. **Decoder shape.** An incremental, byte-at-a-time state machine over a
    caller-owned buffer, returning a value (`frame ready`, `need more`,
@@ -162,7 +164,6 @@ Constraints:
 ### Follow-up work
 
 * Specify the protocol in full in `docs/architecture/protocol.md`.
-* Answer Q32 before firmware `FIRE` handling is specified.
 * Host adapter `SerialActuatorLink` in `raspberry/` (needs a serial transport
   seam; separate ADR or an extension of this one).
 * Firmware in `arduino/`.
@@ -171,7 +172,7 @@ Constraints:
 
 ## Questions raised, and the maintainer's rulings
 
-Raised while writing this ADR and answered by the maintainer on 2026-11-25.
+Raised while writing this ADR (Q32 from the answer to Q31) and answered by the maintainer on 2026-11-25.
 Recorded in the Resolved table of `docs/requirements/requirements.md`.
 
 | #   | Question | Ruling |
@@ -182,12 +183,7 @@ Recorded in the Resolved table of `docs/requirements/requirements.md`.
 | Q29 | Heartbeat interval and host timeout. | **100 ms** interval; `UNAVAILABLE` after **500 ms** without one. |
 | Q30 | Reply timeout. | **50 ms**, then `TRANSPORT_FAILURE`. |
 | Q31 | Firmware's own fire bound. | **500 ms**, the same as the host's default maximum. |
-
-Still open, in the Open Questions table:
-
-| #   | Question | Blocks |
-| --- | -------- | ------ |
-| Q32 | Does the firmware **truncate** a `FIRE` longer than 500 ms and reply `ACK`, or **refuse** it with `NAK`? | Firmware `FIRE` handling, `NAK` reasons |
+| Q32 | Truncate or refuse a `FIRE` longer than 500 ms? | **Truncate** to 500 ms and reply `ACK`. |
 
 Not blocking: the serial baud rate (a deployment value), and whether `AIM` and
 `SAFE` may be retried.
