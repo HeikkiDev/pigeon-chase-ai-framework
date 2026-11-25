@@ -515,15 +515,13 @@ key/value format needs no third-party parser, which matters on a 1 GB target.
   distinguishes acceptance from refusal, and the device emits a periodic
   heartbeat so that silence is detectable as a fault (`REQ-COM-003`).
 
-**Blocked on work not yet done.** The protocol has not been designed. `core/`
-deliberately models the device boundary as *operations* — `ActuatorLink` — and
-not as an encoding (ADR-0007), so there is nothing in `core/` a test could
-assert against without inventing an API. This requirement will therefore be
-reported `UNVERIFIED` by `scripts/trace.sh` until the wire protocol is
-specified in `docs/architecture/` and implemented in `raspberry/` and
-`arduino/`. That is outstanding work with a known owner, not a missing test:
-recorded here so the permanent `UNVERIFIED` line is explained rather than
-mysterious.
+**Specified, not yet implemented.** `core/` deliberately models the device
+boundary as *operations* — `ActuatorLink` — and not as an encoding (ADR-0007).
+The encoding is specified in `docs/architecture/protocol.md` and will be
+implemented once, in `protocol/`, which both devices compile (ADR-0020). This
+requirement is reported `UNVERIFIED` by `scripts/trace.sh` until the tests in
+`tests/protocol/` exist: outstanding work with a known owner, not a missing
+test.
 
 ### REQ-COM-002 — Fail-safe on communication loss
 
@@ -892,7 +890,7 @@ unmerged `real-detector` branch.
 
 | #   | Question | Blocks |
 | --- | -------- | ------ |
-| —   | —        | —      |
+| Q33 | A `FIRE` received while a burst is already active: does the firmware ignore it (reply `ACK`, burst unchanged), restart the 500 ms timer, or refuse it? Restarting would let repeated `FIRE`s keep the water on past 500 ms. | Firmware `FIRE` handling, `docs/architecture/protocol.md` §4.2 |
 
 ### Resolved
 

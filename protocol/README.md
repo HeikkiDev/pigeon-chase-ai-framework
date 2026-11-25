@@ -1,14 +1,14 @@
 # protocol/
 
-The Raspberry Pi ↔ Arduino wire protocol: framing, message encoding and
+The Raspberry Pi ↔ Arduino wire protocol: packet format, message encoding and
 decoding (`REQ-COM-001`). Compiled by both the host (`raspberry/`) and the
 firmware (`arduino/`), so the two devices share one implementation of the
 format.
 
 **Status:** planned. Nothing is built from this folder yet. The design is in
 [ADR-0020](../docs/decisions/0020-wire-protocol-in-a-shared-protocol-module.md)
-(Accepted). The full wire specification will live in
-`docs/architecture/protocol.md`.
+(Accepted). The full wire specification is
+[`docs/architecture/protocol.md`](../docs/architecture/protocol.md).
 
 ## Rules for code in this folder
 

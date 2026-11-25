@@ -29,6 +29,7 @@ Ambiguous terminology is one of the main causes of agent drift.
 | **Fire authorisation** | The safety policy's verdict on an intent to fire: granted with a clamped aim and a bounded duration, or refused with a named reason (`REQ-SAF-002`). |
 | **Refusal reason**     | The named cause of a refused burst. Each `LinkStatus` other than `OK` has its own, shared with no other status, so a refusal is diagnosable (`REQ-SAF-008`, ADR-0015). |
 | **Link health**        | The link's condition right now, reported as a `LinkStatus` without sending anything. Queried by the safety policy at the moment of a fire decision, never remembered by the caller (`REQ-COM-003`, ADR-0016). |
+| **Packet**             | One message on the serial line between the Raspberry Pi and the Arduino: sync byte, type, sequence number, length, payload, CRC. Not a *frame*, which is a camera image (`REQ-COM-001`, `docs/architecture/protocol.md`). |
 | **Heartbeat**          | The periodic message by which the actuator device shows it is still there, so that link health can degrade without a command being sent to discover the fault (`REQ-COM-001`, `REQ-COM-003`). |
 | **Rate window**        | The one-minute span against which the six-burst limit is counted. Half-open: a burst exactly one minute old has left it (`REQ-SAF-005`, ADR-0014). |
 | **Actuator link**      | The seam between `core/` and the actuator system. Failure is a returned status, never an exception (`REQ-COM-002`). |

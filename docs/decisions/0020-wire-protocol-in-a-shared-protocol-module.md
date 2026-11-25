@@ -24,7 +24,7 @@ on a serial line and back. Both ends need exactly the same encoding:
 * the **firmware** (Arduino, AVR-class: `int` is 16 bits, no heap, no
   exceptions, no RTTI, no STL containers; `arduino.instructions.md`).
 
-`arduino.instructions.md` already asks that parsing and framing "can be
+`arduino.instructions.md` already asks that parsing and framing logic "can be
 compiled and unit tested on the host as well as on the device", free of
 `Arduino.h`.
 
@@ -72,16 +72,17 @@ Constraints:
    the **Arduino Uno** (AVR: 16-bit `int`, 2 KB RAM; Q28), so no type may
    assume `int` is 32 bits.
 
-3. **Framing** (proposed, to be specified fully in
-   `docs/architecture/protocol.md`):
+3. **Packet format** (specified in full in `docs/architecture/protocol.md`,
+   which calls the unit a *packet* because the glossary's *frame* is a camera
+   image):
 
    ```text
    SYNC (0xA5) | TYPE (u8) | SEQ (u8) | LEN (u8, ≤ 8) | PAYLOAD (LEN bytes) | CRC-16 (big-endian)
    ```
 
    CRC-16/CCITT-FALSE over `TYPE..PAYLOAD`. Multi-byte integers are
-   big-endian. A receiver that sees a bad length or CRC discards the frame and
-   resynchronises on the next `SYNC`; it never acts on a partial frame.
+   big-endian. A receiver that sees a bad length or CRC discards the packet and
+   resynchronises on the next `SYNC`; it never acts on a partial packet.
 
 4. **Messages** (proposed):
 
@@ -90,8 +91,8 @@ Constraints:
    | host → device   | `AIM`       | x, y: `int16` centidegrees (0.01°, Q27)  | `send_aiming_command`           |
    | host → device   | `FIRE`      | duration: `uint16` ms                    | `send_fire_command`             |
    | host → device   | `SAFE`      | none                                     | `send_safe_state_command`       |
-   | device → host   | `ACK`       | echoed `SEQ`                             | command accepted                |
-   | device → host   | `NAK`       | echoed `SEQ`, reason (`u8`)              | command understood and refused  |
+   | device → host   | `ACK`       | none (`SEQ` header echoes the command)   | command accepted                |
+   | device → host   | `NAK`       | reason (`u8`); `SEQ` echoes the command  | command understood and refused  |
    | device → host   | `HEARTBEAT` | counter (`u16`), actuator-active flag    | liveness for `health()`, every 100 ms (Q29) |
 
 5. **Mapping to `LinkStatus`** (the host adapter's job, stated here so both
@@ -117,7 +118,7 @@ Constraints:
    too-long burst only needs to be shortened.
 
 8. **Decoder shape.** An incremental, byte-at-a-time state machine over a
-   caller-owned buffer, returning a value (`frame ready`, `need more`,
+   caller-owned buffer, returning a value (`packet ready`, `need more`,
    `discarded: <reason>`). Every input sequence of any length is accepted
    without undefined behaviour. The same decoder runs on both sides.
 
@@ -129,7 +130,7 @@ Constraints:
 | Codec in `core/` | `core/` is the hosted domain layer (`double`, `<chrono>`, `std::optional`). Making it compile for AVR would constrain all of it for the sake of one file. The encoding is also not domain logic: ADR-0007 deliberately kept it out. |
 | Codec in `raspberry/` only, firmware hand-written | Same drift problem. Also, on the `real-detector` branch, `raspberry/` builds only with ncnn, so the protocol tests would be skipped on machines without ncnn. |
 | Text protocol (e.g. `AIM 1234 -567\n`) | Easy to read with a terminal, but needs number parsing in firmware, has no natural integrity check, and makes "malformed" a much larger space to test. Can be revisited if debugging needs it. |
-| COBS framing instead of a sync byte | Stronger resynchronisation, but more code and a second concept to explain. A sync byte with a length and a CRC is sufficient at these message sizes. Revisit if field tests show resync problems. |
+| COBS encoding instead of a sync byte | Stronger resynchronisation, but more code and a second concept to explain. A sync byte with a length and a CRC is sufficient at these message sizes. Revisit if field tests show resync problems. |
 | A third-party serialisation library (nanopb, msgpack) | A new dependency (`AGENTS.md` rule 12) for six messages of at most 8 bytes. Not justified. |
 
 ## Consequences
@@ -163,7 +164,9 @@ Constraints:
 
 ### Follow-up work
 
-* Specify the protocol in full in `docs/architecture/protocol.md`.
+* ~~Specify the protocol in full in `docs/architecture/protocol.md`.~~ Done.
+* Answer Q33 (a `FIRE` received during an active burst) before the firmware
+  is written.
 * Host adapter `SerialActuatorLink` in `raspberry/` (needs a serial transport
   seam; separate ADR or an extension of this one).
 * Firmware in `arduino/`.
@@ -192,7 +195,7 @@ Not blocking: the serial baud rate (a deployment value), and whether `AIM` and
 
 * **Tests** in `tests/protocol/`, in the default suite, naming `REQ-COM-001`:
   round-trip encode/decode of every message; rejection of bad CRC, bad length,
-  unknown type and truncated frames; resynchronisation after garbage; a
+  unknown type and truncated packets; resynchronisation after garbage; a
   seeded, deterministic random-bytes test asserting the decoder never reads or
   writes outside its buffer (run under `make asan`).
 * **`scripts/arch-check.sh`** extended, test-first in `tests/scripts/`, to keep

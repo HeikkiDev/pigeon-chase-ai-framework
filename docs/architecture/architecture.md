@@ -35,7 +35,7 @@ It will be responsible for low-level physical control:
 * Positioning the deterrent according to the requested angles.
 * Controlling the water actuator.
 
-The communication protocol between the Raspberry Pi and Arduino is a defined system boundary and should be documented separately.
+The communication protocol between the Raspberry Pi and Arduino is a defined system boundary, specified in [`protocol.md`](protocol.md) and implemented once in `protocol/`, which both devices compile (ADR-0020).
 
 ## Detection and Confirmation
 
@@ -239,12 +239,9 @@ is answered entirely on the commanding side; the firmware keeps that picture
 current by replying to every command and emitting a periodic heartbeat, so a
 fault is visible without a fire command being sent to discover it
 (`REQ-COM-003`). Its wire
-encoding — framing, checksums, replies — is still to be specified in this
-directory (`REQ-COM-001`), and the interface deliberately says nothing about
-it. Because no seam in `core/` represents the encoding, `REQ-COM-001` has
-nothing to test against and stays `UNVERIFIED` until that protocol is
-designed; the requirement now records this explicitly so its status is
-explained rather than mysterious.
+encoding — packets, checksums, replies — is specified in
+[`protocol.md`](protocol.md) (`REQ-COM-001`, ADR-0020), and the interface
+deliberately says nothing about it.
 
 ## Development Principles
 
@@ -266,9 +263,10 @@ manual and this document owns the product description.
 | Module       | Responsibility                                                | May depend on          |
 | ------------ | ------------------------------------------------------------- | ---------------------- |
 | `core/`      | Detection contracts, target state machine, targeting maths, command generation | C++ standard library only |
-| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`                |
-| `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries only |
-| `tests/`     | Verification of the above using simulated implementations     | `core/`, GoogleTest    |
+| `protocol/`  | Wire protocol: packet encoding and decoding, shared by both devices (ADR-0020) | Nothing (`<cstdint>`, `<cstddef>` only) |
+| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`, `protocol/`   |
+| `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries, `protocol/` |
+| `tests/`     | Verification of the above using simulated implementations     | `core/`, `protocol/`, GoogleTest |
 
 The dependency direction is one-way into `core/`. A hardware header appearing
 anywhere under `core/` is an architectural defect, not a style issue.

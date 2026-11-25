@@ -61,6 +61,7 @@ Install them.
 core/                 Hardware-independent domain logic. No hardware headers. Ever.
   include/pigeon/core/  Public headers
   src/                  Implementation
+protocol/             Pi <-> Arduino wire protocol, shared by both devices (ADR-0020).
 raspberry/            Raspberry Pi integration (future). Camera, serial host side.
 arduino/              Arduino firmware (future). Servos, water actuator.
 tests/                GoogleTest suites, mirroring the source tree.
@@ -82,7 +83,8 @@ The dependency direction is strict and one-way:
 
 ```text
 raspberry/ ──▶ core/ ◀── tests/
-arduino/   (separate firmware target)
+raspberry/ ──▶ protocol/ ◀── arduino/ (separate firmware target)
+tests/     ──▶ protocol/
 ```
 
 `core/` depends on nothing but the C++ standard library.
