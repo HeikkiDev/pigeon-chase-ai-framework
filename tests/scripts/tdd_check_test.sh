@@ -141,6 +141,37 @@ commit_in "$history" 'build(ci): wire up the gate' 'Refs: infrastructure' \
 expect_exit 'accepts an explicit infrastructure label in place of a requirement' 0 \
   "$TDD_CHECK" --root "$history" --range 'main~1..main'
 
+# -------------------------------------------- protocol/ is production too ----
+#
+# protocol/ is product code compiled by both devices (ADR-0020). Before this
+# rule the gate only looked at core/, so a feat(protocol) commit with no red
+# step passed and "N commit(s) show test-first evidence" said nothing about it.
+history="$(new_history)"
+commit_in "$history" 'test(tests): specify the codec' 'Refs: REQ-EXA-001' \
+  'tests/protocol/codec_test.cpp'
+commit_in "$history" 'feat(protocol): implement the codec' 'Refs: REQ-EXA-001' \
+  'protocol/src/codec.cpp'
+expect_exit 'accepts a red commit followed by a green protocol/ commit' 0 \
+  "$TDD_CHECK" --root "$history" --range 'main~2..main'
+
+history="$(new_history)"
+commit_in "$history" 'feat(protocol): implement the codec' 'Refs: REQ-EXA-001' \
+  'protocol/src/codec.cpp'
+expect_exit 'rejects new protocol/ behaviour with no preceding test commit' 1 \
+  "$TDD_CHECK" --root "$history" --range 'main~1..main'
+
+history="$(new_history)"
+commit_in "$history" 'fix(protocol): fix and test at once' 'Refs: REQ-EXA-001' \
+  'protocol/include/pigeon/protocol/codec.hpp' 'tests/protocol/codec_test.cpp'
+expect_exit 'rejects a commit that mixes tests with protocol/ code' 1 \
+  "$TDD_CHECK" --root "$history" --range 'main~1..main'
+
+history="$(new_history)"
+commit_in "$history" 'build(protocol): declare the codec' 'No requirement named here.' \
+  'protocol/include/pigeon/protocol/codec.hpp'
+expect_exit 'rejects a protocol/ commit with no Refs trailer' 1 \
+  "$TDD_CHECK" --root "$history" --range 'main~1..main'
+
 # ---------------------------------------------- documentation is unconstrained ----
 history="$(new_history)"
 commit_in "$history" 'docs: describe the workflow' '' 'docs/architecture/architecture.md'
