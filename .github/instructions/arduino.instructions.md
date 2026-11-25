@@ -57,7 +57,7 @@ These are not negotiable.
 
 ## Testing
 
-- Host-testable logic (parsing, clamping, timing state machines) must have
+- Host-testable logic (parsing, envelope checks, timing state machines) must have
   tests that run in the normal suite on macOS.
 - Anything requiring the physical board is hardware-in-the-loop: separate from
   the default suite and from CI (`REQ-DEV-003`).

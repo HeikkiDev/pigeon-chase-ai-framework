@@ -515,13 +515,25 @@ key/value format needs no third-party parser, which matters on a 1 GB target.
   distinguishes acceptance from refusal, and the device emits a periodic
   heartbeat so that silence is detectable as a fault (`REQ-COM-003`).
 
-**Specified, not yet implemented.** `core/` deliberately models the device
-boundary as *operations* — `ActuatorLink` — and not as an encoding (ADR-0007).
-The encoding is specified in `docs/architecture/protocol.md` and will be
-implemented once, in `protocol/`, which both devices compile (ADR-0020). This
-requirement is reported `UNVERIFIED` by `scripts/trace.sh` until the tests in
-`tests/protocol/` exist: outstanding work with a known owner, not a missing
-test.
+**Codec implemented; device behaviour outstanding.** `core/` deliberately
+models the device boundary as *operations* — `ActuatorLink` — and not as an
+encoding (ADR-0007). The encoding is specified in
+`docs/architecture/protocol.md` and implemented once, in `protocol/`, which both
+devices compile (ADR-0020). `tests/protocol/` verifies it, and the requirement is
+in `verified.txt` on that basis. What those tests cover, bullet by bullet:
+
+* **Bullet 1** (encoding and decoding tested without a serial device):
+  covered.
+* **Bullet 2** (malformed input rejected without undefined behaviour): covered,
+  including seeded random input under `make asan`.
+* **Bullet 3** (every command answered, periodic heartbeat): **only the
+  encoding** is covered — `ACK`, `NAK` and `HEARTBEAT` exist and round-trip. The
+  *behaviour* — the device replying to every command, the 100 ms heartbeat, the
+  host's 50 ms reply timeout, sequence matching (protocol.md §5) and the
+  health mapping (§8) — belongs to the host adapter in `raspberry/` and the
+  firmware in `arduino/`, neither of which exists yet. That is outstanding
+  work with a known owner. It needs tests of its own when those modules are
+  written; the `verified` status here does not claim it.
 
 ### REQ-COM-002 — Fail-safe on communication loss
 

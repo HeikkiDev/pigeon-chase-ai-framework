@@ -121,7 +121,9 @@ Constraints:
    too-long burst only needs to be shortened.
 
 8. **Decoder shape.** An incremental, byte-at-a-time state machine over a
-   caller-owned buffer, returning a value (`packet ready`, `need more`,
+   fixed-size buffer inside the decoder (originally written as caller-owned;
+   one internal 8-byte payload buffer proved simpler and smaller on the Uno),
+   returning a value (`packet ready`, `need more`,
    `discarded: <reason>`). Every input sequence of any length is accepted
    without undefined behaviour. The same decoder runs on both sides.
 
@@ -178,7 +180,7 @@ Constraints:
 
 ## Questions raised, and the maintainer's rulings
 
-Raised while writing this ADR (Q32 from the answer to Q31) and answered by the maintainer on 2026-11-25.
+Raised while writing this ADR (Q32 from the answer to Q31, Q33 from the spec) and answered by the maintainer on 2026-11-25.
 Recorded in the Resolved table of `docs/requirements/requirements.md`.
 
 | #   | Question | Ruling |
@@ -190,6 +192,7 @@ Recorded in the Resolved table of `docs/requirements/requirements.md`.
 | Q30 | Reply timeout. | **50 ms**, then `TRANSPORT_FAILURE`. |
 | Q31 | Firmware's own fire bound. | **500 ms**, the same as the host's default maximum. |
 | Q32 | Truncate or refuse a `FIRE` longer than 500 ms? | **Truncate** to 500 ms and reply `ACK`. |
+| Q33 | A `FIRE` received during an active burst. | **Ignore** it: reply `ACK`, the running burst keeps its end time. |
 
 Not blocking: the serial baud rate (a deployment value), and whether `AIM` and
 `SAFE` may be retried.

@@ -148,8 +148,8 @@ class Decoder {
   [[nodiscard]] const Message& message() const noexcept;
 
  private:
-  // Implementation state. Owned by the implementation-engineer, who may change
-  // it freely: it is not part of the interface.
+  // Implementation state: not part of the interface, and free to change without
+  // changing any caller.
   enum class State : uint8_t { SYNC, TYPE, SEQ, LEN, PAYLOAD, CRC_HIGH, CRC_LOW };
 
   Endpoint endpoint_;
