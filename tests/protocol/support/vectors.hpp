@@ -1,0 +1,54 @@
+#pragma once
+
+// Byte-exact test vectors for the wire protocol (docs/architecture/protocol.md).
+//
+// Computed with an independent Python implementation of CRC-16/CCITT-FALSE and
+// the packet layout in protocol.md §2, not with the code under test, so a
+// vector that agrees with `encode` is evidence and not a tautology. The first
+// four are the worked examples of protocol.md §10.
+
+#include <cstdint>
+#include <vector>
+
+namespace pigeon::protocol_test {
+
+using Bytes = std::vector<std::uint8_t>;
+
+// clang-format off
+
+// protocol.md §10: AIM, SEQ 0x07, x = 12.34° (1234), y = 5.00° (500).
+inline const Bytes aim_example{0xA5, 0x01, 0x07, 0x04, 0x04, 0xD2, 0x01, 0xF4, 0x55, 0x47};
+// protocol.md §10: the ACK answering it.
+inline const Bytes ack_example{0xA5, 0x81, 0x07, 0x00, 0x59, 0x61};
+// protocol.md §10: FIRE, SEQ 0x08, 500 ms.
+inline const Bytes fire_example{0xA5, 0x02, 0x08, 0x02, 0x01, 0xF4, 0x22, 0x86};
+// protocol.md §10: HEARTBEAT, counter 42, actuator inactive.
+inline const Bytes heartbeat_example{0xA5, 0x83, 0x00, 0x03, 0x00, 0x2A, 0x00, 0x66, 0x21};
+
+// SAFE, SEQ 0x09.
+inline const Bytes safe_seq9{0xA5, 0x03, 0x09, 0x00, 0x2F, 0x54};
+// NAK, SEQ 0x07, ANGLE_OUT_OF_ENVELOPE.
+inline const Bytes nak_seq7{0xA5, 0x82, 0x07, 0x01, 0x01, 0x12, 0x10};
+// AIM, SEQ 0xFF, x = -90.00° (-9000), y = 45.00° (4500): the envelope corners.
+inline const Bytes aim_limits{0xA5, 0x01, 0xFF, 0x04, 0xDC, 0xD8, 0x11, 0x94, 0x4C, 0x6D};
+// AIM, SEQ 0xA5, x = -23131 (0xA5A5), y = 165 (0x00A5): the sync byte appears
+// four times inside the packet.
+inline const Bytes aim_sync_in_payload{0xA5, 0x01, 0xA5, 0x04, 0xA5, 0xA5, 0x00, 0xA5, 0x87, 0x90};
+// HEARTBEAT, counter 65535, actuator active.
+inline const Bytes heartbeat_active_max{0xA5, 0x83, 0x00, 0x03, 0xFF, 0xFF, 0x01, 0x53, 0xB1};
+// FIRE, SEQ 0x00, 0 ms.
+inline const Bytes fire_zero{0xA5, 0x02, 0x00, 0x02, 0x00, 0x00, 0x3B, 0xEF};
+// FIRE, SEQ 0x01, 65535 ms: encodable; truncation to 500 ms is the firmware's job.
+inline const Bytes fire_max{0xA5, 0x02, 0x01, 0x02, 0xFF, 0xFF, 0x50, 0x54};
+
+// Valid CRC, reserved content (protocol.md §4.5, §4.6, §7).
+// NAK with reason 0x02.
+inline const Bytes nak_reserved_reason{0xA5, 0x82, 0x07, 0x01, 0x02, 0x22, 0x73};
+// HEARTBEAT with SEQ 0x01.
+inline const Bytes heartbeat_nonzero_seq{0xA5, 0x83, 0x01, 0x03, 0x00, 0x2A, 0x00, 0xCC, 0x70};
+// HEARTBEAT with flag bit 1 set.
+inline const Bytes heartbeat_reserved_flag{0xA5, 0x83, 0x00, 0x03, 0x00, 0x2A, 0x02, 0x46, 0x63};
+
+// clang-format on
+
+}  // namespace pigeon::protocol_test
