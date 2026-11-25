@@ -228,6 +228,62 @@ sandbox="$(new_sandbox)"
 expect_exit 'permits a tree in which refusal_for does not yet exist' 0 \
   "$ARCH_CHECK" --root "$sandbox"
 
+# ------------------------------------------- protocol/ fits the Uno (ADR-0020) --
+# protocol/ is compiled by the Arduino Uno too: avr-gcc has no C++ standard
+# library, no heap worth the name, and no use for exceptions, RTTI, virtual
+# dispatch or floating point. The host build cannot notice a violation, so the
+# gate has to.
+for header in '<vector>' '<cstdint>' '<cstddef>' '<string.h>' '<Arduino.h>' '"pigeon/core/aiming.hpp"'; do
+  sandbox="$(new_sandbox)"
+  write_file "$sandbox/protocol/src/offender.cpp" <<EOF
+#include ${header}
+EOF
+  expect_exit "rejects #include ${header} in protocol/" 1 "$ARCH_CHECK" --root "$sandbox"
+done
+
+for construct in 'std::uint8_t byte = 0;' 'double ratio = 0.5;' 'float ratio = 0.5F;' \
+                 'struct Base { virtual void f(); };' 'void f() { throw 1; }' \
+                 'void f() { try { } catch (...) { } }' 'int* p = new int(1);' \
+                 'void* p = malloc(4);' 'auto& t = typeid(int);' \
+                 'Base* b = dynamic_cast<Base*>(other);'; do
+  sandbox="$(new_sandbox)"
+  write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<EOF
+#pragma once
+${construct}
+EOF
+  expect_exit "rejects '${construct}' in protocol/" 1 "$ARCH_CHECK" --root "$sandbox"
+done
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/src/offender.cpp" <<'EOF'
+double ratio = 0.5;
+EOF
+expect_output_contains 'names the file when rejecting protocol/ code' \
+  'protocol/src/offender.cpp' "$ARCH_CHECK" --root "$sandbox"
+expect_output_contains 'names ADR-0020 when rejecting protocol/ code' \
+  'ADR-0020' "$ARCH_CHECK" --root "$sandbox"
+
+# What protocol/ is allowed: the two C headers, its own headers, and comments
+# or strings that merely mention a banned word.
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/protocol.hpp" <<'EOF'
+#pragma once
+// No std::, no new, no virtual, no double, no float, no throw (ADR-0020).
+/* Not even malloc or dynamic_cast or typeid
+   in a block comment. */
+#include <stddef.h>
+#include <stdint.h>
+namespace pigeon::protocol {
+constexpr uint8_t sync_byte = 0xA5;
+constexpr const char* note = "std::vector and double are banned";
+}  // namespace pigeon::protocol
+EOF
+write_file "$sandbox/protocol/src/protocol.cpp" <<'EOF'
+#include "pigeon/protocol/protocol.hpp"
+EOF
+expect_exit 'accepts <stdint.h>, <stddef.h>, its own headers, and comments in protocol/' 0 \
+  "$ARCH_CHECK" --root "$sandbox"
+
 # ------------------------------------------------------------ the real repository --
 expect_exit 'the real repository satisfies its own architectural rules' 0 \
   "$ARCH_CHECK" --root "$PIGEON_REPO_ROOT"
