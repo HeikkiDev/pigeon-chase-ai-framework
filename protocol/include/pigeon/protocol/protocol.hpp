@@ -30,6 +30,33 @@ constexpr size_t min_packet_size = 6;
 /// Size of a packet with the largest payload.
 constexpr size_t max_packet_size = min_packet_size + max_payload_size;
 
+// Values both devices must agree on (protocol.md §4.1, §4.2, §6). Defined once
+// here so the firmware and the host adapter cannot drift apart. The codec
+// itself does not use them: enforcing them is the firmware's and the host
+// adapter's job.
+
+/// Longest burst the device will run; a longer `FIRE` is truncated to this
+/// (`REQ-SAF-001`, Q31, Q32).
+constexpr uint16_t device_fire_bound_ms = 500;
+
+/// The device's own envelope, inclusive, in centidegrees. An `AIM` outside it
+/// is refused with `NAK`, never clamped (`REQ-AIM-002`, Q26).
+constexpr int16_t envelope_x_min_centidegrees = -9000;
+constexpr int16_t envelope_x_max_centidegrees = 9000;
+constexpr int16_t envelope_y_min_centidegrees = 0;
+constexpr int16_t envelope_y_max_centidegrees = 4500;
+
+/// How often the device sends `HEARTBEAT` (`REQ-COM-003`, Q29).
+constexpr uint16_t heartbeat_interval_ms = 100;
+
+/// How long without a `HEARTBEAT` before the host reports `UNAVAILABLE`
+/// (`REQ-COM-003`, Q29).
+constexpr uint16_t heartbeat_timeout_ms = 500;
+
+/// How long the host waits for `ACK` or `NAK` before `TRANSPORT_FAILURE`
+/// (Q30).
+constexpr uint16_t reply_timeout_ms = 50;
+
 /// Message types (protocol.md §3). The top bit is the direction: clear for
 /// host -> device, set for device -> host. Every other value is reserved.
 enum class MessageType : uint8_t {
