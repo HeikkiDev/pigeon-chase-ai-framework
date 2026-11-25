@@ -24,12 +24,12 @@ Each role declares its model in the `model:` field of its `.agent.md`
 frontmatter, so the choice travels with the repository instead of living in
 whoever happened to dispatch the agent.
 
-| Agent                     | Model             | Why                                                                     |
-| ------------------------- | ----------------- | ----------------------------------------------------------------------- |
-| `architect`               | `claude-opus-5`   | Decides what the system must do. Escalating an ambiguity instead of inventing an answer is the behaviour being bought. |
-| `test-engineer`           | `claude-opus-5`   | Writes the executable specification. A test that passes vacuously is worse than no test, and spotting that needs judgement. |
-| `implementation-engineer` | `claude-opus-5`   | Safety-critical state machine under an exhaustive suite.                |
-| `code-reviewer`           | `claude-sonnet-5` | Verifies against explicit `REQ-*` criteria and a gate that returns an exit code. The bar is thoroughness, not invention. |
+| Agent                     | Model               | Why                                                                     |
+| ------------------------- | ------------------- | ----------------------------------------------------------------------- |
+| `architect`               | `claude-opus-5-5`   | Decides what the system must do. Escalating an ambiguity instead of inventing an answer is the behaviour being bought. |
+| `test-engineer`           | `claude-opus-5-5`   | Writes the executable specification. A test that passes vacuously is worse than no test, and spotting that needs judgement. |
+| `implementation-engineer` | `claude-opus-5-5`   | Safety-critical state machine under an exhaustive suite.                |
+| `code-reviewer`           | `claude-sonnet-5-5` | Verifies against explicit `REQ-*` criteria and a gate that returns an exit code. The bar is thoroughness, not invention. |
 
 These are defaults for the role, not for every task. A dispatcher may override
 the model for a **mechanical** run — replaying a recipe, a large rename, a
