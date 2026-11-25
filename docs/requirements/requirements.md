@@ -890,7 +890,7 @@ unmerged `real-detector` branch.
 
 | #   | Question | Blocks |
 | --- | -------- | ------ |
-| Q33 | A `FIRE` received while a burst is already active: does the firmware ignore it (reply `ACK`, burst unchanged), restart the 500 ms timer, or refuse it? Restarting would let repeated `FIRE`s keep the water on past 500 ms. | Firmware `FIRE` handling, `docs/architecture/protocol.md` §4.2 |
+| —   | —        | —      |
 
 ### Resolved
 
@@ -899,7 +899,7 @@ Q19 were raised by the **test-engineer**, while encoding the acceptance
 criteria as executable tests, at the points where a test could not be written
 because the boundary was unstated. That provenance is worth keeping: it is
 evidence that writing the tests first does the job it is there to do. Q26 to
-Q32 were raised by the **architect** while designing the wire protocol
+Q33 were raised by the **architect** while designing the wire protocol
 (ADR-0020) and answered by the maintainer on 2026-11-25.
 
 | #  | Question                                          | Resolution                                                                 |
@@ -930,6 +930,7 @@ Q32 were raised by the **architect** while designing the wire protocol
 | Q30 | Reply timeout                                    | **50 ms**, then `TRANSPORT_FAILURE`. Maintainer ruling, 2026-11-25. ADR-0020 |
 | Q31 | Firmware's own fire bound                        | **500 ms**, the same as the host's default maximum. Maintainer ruling, 2026-11-25. `REQ-SAF-001`, ADR-0020 |
 | Q32 | A `FIRE` longer than the firmware bound       | **Truncated to 500 ms and accepted** (`ACK`). Maintainer ruling, 2026-11-25. `REQ-SAF-001`, ADR-0020 |
+| Q33 | A `FIRE` received during an active burst       | **Ignored**: replied to with `ACK`, the running burst is not extended or restarted. Maintainer ruling, 2026-11-25. `REQ-SAF-001`, `docs/architecture/protocol.md` §4.2 |
 
 ### Corrections
 

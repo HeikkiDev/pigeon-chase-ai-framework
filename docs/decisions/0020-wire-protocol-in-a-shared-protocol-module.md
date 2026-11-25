@@ -165,8 +165,8 @@ Constraints:
 ### Follow-up work
 
 * ~~Specify the protocol in full in `docs/architecture/protocol.md`.~~ Done.
-* Answer Q33 (a `FIRE` received during an active burst) before the firmware
-  is written.
+* ~~Answer Q33 (a `FIRE` received during an active burst).~~ Ruled: ignored,
+  with `ACK`.
 * Host adapter `SerialActuatorLink` in `raspberry/` (needs a serial transport
   seam; separate ADR or an extension of this one).
 * Firmware in `arduino/`.

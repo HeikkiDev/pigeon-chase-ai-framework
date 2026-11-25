@@ -91,8 +91,10 @@ any other `LEN` makes the packet malformed (§7).
   `FireCommand`'s default of zero.
 * **The host SHALL NOT retransmit `FIRE`**, whatever happens to the reply
   (ADR-0020 §6, ADR-0011).
-* A `FIRE` received while a burst is already active: **not yet specified**
-  (Q33).
+* A `FIRE` received while a burst is already active SHALL be **ignored**: the
+  device replies `ACK` and the running burst keeps its original end time. It
+  is neither extended nor restarted (Q33), so no sequence of `FIRE`s can keep
+  the water on longer than one bound.
 
 ### 4.3 `SAFE` (`0x03`)
 
@@ -257,6 +259,5 @@ These packets are the first test vectors for `tests/protocol/`.
 * Baud rate (deployment value).
 * Whether the host may retry `AIM` or `SAFE` after a timeout. `FIRE` is never
   retried (§4.2).
-* A `FIRE` received while a burst is active (Q33).
 * The host adapter's serial transport seam (`raspberry/`), and the firmware
   (`arduino/`).
