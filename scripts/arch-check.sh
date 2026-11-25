@@ -13,6 +13,7 @@
 #   REQ-DEV-001  the system builds, runs and is tested with no hardware present
 #   REQ-DEV-002  no wall clock or unseeded randomness in domain logic
 #   REQ-DEV-003  the default suite opens no serial port or camera device
+#   REQ-COM-001  protocol/ stays within what the Arduino Uno compiles (ADR-0020)
 #
 # Usage:
 #   scripts/arch-check.sh                # check this repository
@@ -25,7 +26,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --root) ROOT="$2"; shift 2 ;;
-    -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -133,6 +134,63 @@ check_refusal_switch() {
   done < <(sources_in "$ROOT/core")
 }
 
+# protocol/ must stay within what the Arduino Uno compiles (ADR-0020, Q28).
+#
+# avr-gcc has no C++ standard library, so the host build cannot notice a
+# <vector>, a std:: name or a <cstdint>; -fno-exceptions and -fno-rtti catch
+# only part of the rest. Includes are allow-listed: <stdint.h>, <stddef.h> and
+# protocol/'s own headers. Constructs the Uno cannot or must not use are banned
+# by name. Comments and string literals are stripped first, so documenting a
+# ban is not a violation of it.
+readonly PROTOCOL_BANNED='std::|(^|[^[:alnum:]_])(double|float|virtual|throw|try|catch|new|malloc|calloc|realloc|typeid|dynamic_cast)([^[:alnum:]_]|$)'
+
+check_protocol_purity() {
+  local file kind line text
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    while IFS=$'\t' read -r kind line text; do
+      [[ -z "$kind" ]] && continue
+      case "$kind" in
+        I)
+          case "$text" in
+            '<stdint.h>'|'<stddef.h>'|'"pigeon/protocol/'*) ;;
+            *) report "include ${text} in protocol/, which the Uno cannot compile (ADR-0020): ${file#"$ROOT"/}:${line}" ;;
+          esac
+          ;;
+        C)
+          if printf '%s\n' "$text" | grep -qE -- "$PROTOCOL_BANNED"; then
+            report "construct the Uno cannot use in protocol/ (ADR-0020): ${file#"$ROOT"/}:${line}:$(printf '%s' "$text" | sed 's/[[:space:]]\{1,\}/ /g')"
+          fi
+          ;;
+      esac
+    done < <(awk '
+      {
+        raw = $0
+        code = $0
+        # Strip string and character literals, then comments, so that only
+        # code is examined. A block comment may span lines.
+        gsub(/"([^"\\]|\\.)*"/, "\"\"", code)
+        gsub(/'\''([^'\''\\]|\\.)*'\''/, "'\'''\''", code)
+        if (in_block) {
+          if (sub(/^.*\*\//, "", code)) { in_block = 0 } else { next }
+        }
+        gsub(/\/\*([^*]|\*+[^*\/])*\*+\//, " ", code)
+        if (sub(/\/\*.*$/, " ", code)) { in_block = 1 }
+        sub(/\/\/.*$/, "", code)
+
+        if (code ~ /^[[:space:]]*#[[:space:]]*include/) {
+          target = raw
+          sub(/^[[:space:]]*#[[:space:]]*include[[:space:]]*/, "", target)
+          sub(/[[:space:]]*(\/\/.*|\/\*.*)?$/, "", target)
+          printf "I\t%d\t%s\n", NR, target
+        } else if (code ~ /[^[:space:]]/) {
+          printf "C\t%d\t%s\n", NR, code
+        }
+      }
+    ' "$file" 2>/dev/null || true)
+  done < <(sources_in "$ROOT/protocol")
+}
+
 printf '\n\033[1m==> Checking architectural rules\033[0m\n'
 
 scan "$ROOT/core"  'hardware or platform header in core/ (REQ-DET-002)' "$HARDWARE_INCLUDES" 1
@@ -142,6 +200,7 @@ scan "$ROOT/core"  'device path in core/ (REQ-DEV-001)'                  "$DEVIC
 scan "$ROOT/tests" 'hardware header in the default test suite (REQ-DEV-003)' "$HARDWARE_INCLUDES" 1
 scan "$ROOT/tests" 'device path in the default test suite (REQ-DEV-003)' "$DEVICE_PATHS"
 check_refusal_switch
+check_protocol_purity
 
 if [[ "$violations" -gt 0 ]]; then
   printf '\033[31m    FAILED: %d architectural violation(s).\033[0m\n' "$violations" >&2
@@ -151,4 +210,4 @@ if [[ "$violations" -gt 0 ]]; then
   exit 1
 fi
 
-printf '\033[32m    ok: core/ is hardware-free and the default suite needs no device\033[0m\n'
+printf '\033[32m    ok: core/ is hardware-free, protocol/ fits the Uno, and the default suite needs no device\033[0m\n'
