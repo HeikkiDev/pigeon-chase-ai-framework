@@ -883,12 +883,18 @@ and rigs get moved.
 Unresolved specification gaps. **Agents must not invent answers to these** —
 raise them with the maintainer.
 
-*None outstanding.* Every question raised so far has been resolved; see below.
-Add new rows here rather than guessing.
+Add new rows here rather than guessing. Q26 to Q31 were raised by the
+**architect** while designing the wire protocol (ADR-0020, Proposed). Q20 to
+Q25 are reserved by the unmerged `real-detector` branch.
 
-| #  | Question | Blocks |
-| -- | -------- | ------ |
-| —  | —        | —      |
+| #   | Question | Blocks |
+| --- | -------- | ------ |
+| Q26 | Out-of-envelope angles in firmware: clamp or refuse? `ActuatorLink`'s header says the receiver clamps again; `LinkStatus::REJECTED` says the device refuses angles outside its envelope. | `NAK` reasons; `REQ-AIM-002` device side |
+| Q27 | Angle resolution on the wire: is 0.01° (centidegrees in `int16`) acceptable? | `AIM` payload, `REQ-COM-001` |
+| Q28 | Arduino board and toolchain: which board, and which C++ standard does its compiler support? | The freestanding subset `protocol/` compiles under |
+| Q29 | Heartbeat interval, and how long without one before `health()` reports `UNAVAILABLE`. | `REQ-COM-003` on hardware |
+| Q30 | Reply timeout: how long the host waits for `ACK`/`NAK` before `TRANSPORT_FAILURE`. | `send_*` on hardware |
+| Q31 | Firmware's own fire bound: also 500 ms, or a separate hard ceiling above the host's configured maximum? | `REQ-SAF-001` third acceptance bullet |
 
 ### Resolved
 
