@@ -5,8 +5,9 @@ decoding (`REQ-COM-001`). Compiled by both the host (`raspberry/`) and the
 firmware (`arduino/`), so the two devices share one implementation of the
 format.
 
-**Status:** interface declared (`include/pigeon/protocol/protocol.hpp`), not
-yet implemented. The design is in
+**Status:** implemented (`include/pigeon/protocol/protocol.hpp`,
+`src/protocol.cpp`) and tested in `tests/protocol/` (`REQ-COM-001`). Not yet
+compiled with avr-gcc. The design is in
 [ADR-0020](../docs/decisions/0020-wire-protocol-in-a-shared-protocol-module.md)
 (Accepted). The full wire specification is
 [`docs/architecture/protocol.md`](../docs/architecture/protocol.md).
