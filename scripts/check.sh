@@ -243,7 +243,10 @@ if [[ "$SKIP_TIDY" == "0" ]]; then
     if [[ -z "${tidy_files[0]:-}" ]]; then
       ok "no source files to analyse"
     else
-      "$CLANG_TIDY" -p "$BUILD_DIR" --quiet "${tidy_args[@]:-}" "${tidy_files[@]}" \
+      # `${a[@]+"${a[@]}"}`, not `"${a[@]:-}"`: the latter turns an empty array
+      # into one empty argument, which clang-tidy reads as a source path and
+      # resolves to the working directory. tidy_args is empty off macOS.
+      "$CLANG_TIDY" -p "$BUILD_DIR" --quiet ${tidy_args[@]+"${tidy_args[@]}"} "${tidy_files[@]}" \
         || fail "clang-tidy reported issues"
       ok "${#tidy_files[@]} file(s) analysed ($("$CLANG_TIDY" --version | grep -i 'LLVM version' | tr -s ' ' | sed 's/^ *//'))"
     fi
