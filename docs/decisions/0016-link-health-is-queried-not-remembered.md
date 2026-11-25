@@ -121,8 +121,9 @@ status byte, and add nothing measurable to the Raspberry Pi 3B's 1 GB budget.
 * The test-engineer's `set_observed_link_status` seam in
   `tests/core/support/engagement_loop.hpp` is now unnecessary and should be
   removed: the condition it faked is expressible on the link itself.
-* `scripts/arch-check.sh` does not yet enforce ADR-0015's "no `default:` in
-  `refusal_for`" rule (defect D3). Referred to the maintainer.
+* `scripts/arch-check.sh` did not yet enforce ADR-0015's "no `default:` in
+  `refusal_for`" rule (defect D3). Referred to the maintainer. *Since done:*
+  the gate now rejects it (`0bd24eb`).
 * The wire protocol remains unspecified (`REQ-COM-001`). This ADR adds two
   obligations it must satisfy; it does not design it.
 
