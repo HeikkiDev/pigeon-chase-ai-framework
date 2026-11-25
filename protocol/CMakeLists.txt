@@ -5,6 +5,7 @@
 # Arduino Uno's toolchain (Q28). Those settings are PRIVATE: they apply to this
 # library's own sources, not to the hosted code that links it.
 add_library(pigeon_protocol
+  src/protocol.cpp
   src/public_headers.cpp
 )
 

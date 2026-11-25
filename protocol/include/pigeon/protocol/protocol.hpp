@@ -154,10 +154,21 @@ class Decoder {
 
   Endpoint endpoint_;
   State state_{State::SYNC};
+  /// TYPE, SEQ and LEN of the packet in progress.
+  uint8_t type_{0};
+  uint8_t seq_{0};
+  uint8_t length_{0};
+  /// The payload received so far: `size_` of `length_` bytes.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-  uint8_t buffer_[max_packet_size]{};
+  uint8_t payload_[max_payload_size]{};
   size_t size_{0};
+  /// CRC of the covered bytes received so far, and the CRC's high byte.
+  uint16_t crc_{0};
+  uint8_t crc_high_{0};
   Message message_{};
+
+  /// Finishes a packet whose CRC has arrived, at the last CRC byte.
+  [[nodiscard]] DecodeStatus finish(uint8_t crc_low) noexcept;
 };
 
 }  // namespace pigeon::protocol
