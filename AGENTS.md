@@ -180,7 +180,7 @@ Refs: REQ-TRK-002, REQ-TRK-003
 ```
 
 Types: `feat`, `fix`, `test`, `docs`, `refactor`, `build`, `ci`, `chore`.
-Scopes: `core`, `raspberry`, `arduino`, `tests`, `docs`, `ci`, `agents`.
+Scopes: `core`, `protocol`, `raspberry`, `arduino`, `tests`, `docs`, `ci`, `agents`.
 
 Every PR description must contain:
 
