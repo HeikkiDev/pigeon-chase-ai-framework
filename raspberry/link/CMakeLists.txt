@@ -4,6 +4,7 @@
 # ncnn gate and is built and tested on every machine (REQ-DEV-001). It lives
 # under raspberry/ because it is Raspberry Pi integration, not domain logic.
 add_library(pigeon_raspberry_link
+  src/link_health.cpp
   src/public_headers.cpp
   src/serial_actuator_link.cpp
   src/serial_port_stream.cpp
@@ -13,6 +14,7 @@ add_library(pigeon_raspberry_link
 target_sources(pigeon_raspberry_link
   PRIVATE
     include/pigeon/raspberry/byte_stream.hpp
+    include/pigeon/raspberry/link_health.hpp
     include/pigeon/raspberry/serial_actuator_link.hpp
     include/pigeon/raspberry/serial_port_stream.hpp
     include/pigeon/raspberry/steady_clock.hpp

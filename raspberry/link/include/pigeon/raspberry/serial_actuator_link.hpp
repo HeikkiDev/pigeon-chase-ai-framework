@@ -11,6 +11,7 @@
 #include "pigeon/protocol/framer.hpp"
 #include "pigeon/protocol/message.hpp"
 #include "pigeon/raspberry/byte_stream.hpp"
+#include "pigeon/raspberry/link_health.hpp"
 
 namespace pigeon::raspberry {
 
@@ -105,6 +106,10 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
   /// Answered from state alone: transmits nothing and blocks on nothing
   /// (`REQ-COM-003`).
   [[nodiscard]] pigeon::core::LinkStatus health() const noexcept override;
+
+  /// What `health()` is judged from, without the time: for a wrapper that answers
+  /// `health()` on another thread from a published copy (ADR-0023).
+  [[nodiscard]] LinkHealthState health_state() const noexcept;
 
  private:
   /// The one command whose reply is awaited (stop-and-wait, section 6).

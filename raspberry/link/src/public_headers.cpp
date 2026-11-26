@@ -6,6 +6,7 @@
 // `raspberry/src/public_headers.cpp`.
 
 #include "pigeon/raspberry/byte_stream.hpp"
+#include "pigeon/raspberry/link_health.hpp"
 #include "pigeon/raspberry/serial_actuator_link.hpp"
 #include "pigeon/raspberry/serial_port_stream.hpp"
 #include "pigeon/raspberry/steady_clock.hpp"
