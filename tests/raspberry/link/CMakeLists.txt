@@ -65,7 +65,19 @@ pigeon_add_test(concurrent_actuator_link_test
   LIBS pigeon::raspberry_link
 )
 
+pigeon_add_test(periodic_runner_test
+  SOURCES periodic_runner_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(concurrent_actuator_link_reader_test
+  SOURCES concurrent_actuator_link_reader_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
 foreach(target
+    periodic_runner_test
+    concurrent_actuator_link_reader_test
     concurrent_actuator_link_test
     link_health_test
     steady_clock_test
