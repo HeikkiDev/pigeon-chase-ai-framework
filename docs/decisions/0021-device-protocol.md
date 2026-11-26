@@ -1,6 +1,6 @@
 # ADR-0021 — Device protocol: framed binary messages, heartbeat-based health, a shared codec
 
-**Status:** Proposed — awaiting the maintainer's confirmation of D4 and of open question Q26
+**Status:** Accepted
 **Date:** 2026-11-26
 **Affects:** `REQ-COM-001`, `REQ-COM-002`, `REQ-COM-003`; `REQ-AIM-002`,
 `REQ-SAF-001`, `REQ-SAF-004`, `REQ-SAF-005`, `REQ-SAF-007`;
@@ -83,9 +83,9 @@ recommendations ("your recommendations", 2026-11-26). D1 to D3 follow the
 recommendations as put to the maintainer. **D4 does not:** the recommendation
 was first drafted as "adopt" and was reversed to "do not adopt" while the
 specification was being written, once the burst bound above was seen to cover
-the case. The maintainer approved a recommendation the text no longer shows, so
-this ADR stays *Proposed* until the maintainer confirms the reversal. Q26, which
-the specification answers provisionally, is the other open item.
+the case. The maintainer was told of the reversal and confirmed it the same day
+("So your recommendation", 2026-11-26), and also ruled on the one question the
+specification raised, Q26: out-of-range angles are **refused**, not clamped.
 
 ## Alternatives considered
 
@@ -121,9 +121,9 @@ the specification answers provisionally, is the other open item.
 * The heartbeat timings are unproven on real hardware. They are parameters
   (see the configured-parameters table) and the first hardware run may move
   them.
-* Out-of-range angles are refused rather than clamped by the device. This is
-  fail-closed but disagrees with the wording of `actuator_link.hpp` ("the
-  receiver clamps them again"), and is recorded as open question Q26.
+* Out-of-range angles are refused rather than clamped by the device (Q26,
+  maintainer ruling). This is fail-closed, and it is why `LinkStatus::REJECTED`
+  has a cause that can occur for aiming as well as for firing.
 * A shared module constrains the C++ that `protocol/` may use, and the
   firmware toolchain has not been chosen.
 * Health can read `OK` for up to about 1.7 s after the device stops: the 1.5 s
@@ -141,8 +141,7 @@ Each is its own change, test-first:
    new module.
 2. **The host link** (`raspberry/`): a `SerialActuatorLink` over an abstract
    byte stream, tested against a simulated device, with `health()` derived as
-   in the specification. Reconcile the `actuator_link.hpp` comment on clamping
-   with the answer to Q26.
+   in the specification.
 3. **The serial port and a hardware test**, kept out of the default suite
    (`REQ-DEV-003`).
 4. **The firmware** (`arduino/`): needs the board named and a toolchain

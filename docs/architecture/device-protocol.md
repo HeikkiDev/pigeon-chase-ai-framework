@@ -1,9 +1,8 @@
 # Device protocol — Raspberry Pi ↔ Arduino (version 1)
 
 **Status:** specified, not yet implemented. Implementation is staged in
-ADR-0021 (itself still *Proposed*, pending the maintainer's confirmation of its
-D4 and of open question Q26); until the codec and both sides exist,
-`REQ-COM-001` stays `UNVERIFIED`.
+ADR-0021; until the codec and both sides exist, `REQ-COM-001` stays
+`UNVERIFIED`.
 **Satisfies:** `REQ-COM-001`. Carries `REQ-COM-002`, `REQ-COM-003`,
 `REQ-AIM-002`, `REQ-SAF-001`, `REQ-SAF-004`, `REQ-SAF-005`, `REQ-SAF-007`.
 **Decided in:** ADR-0021.
@@ -165,10 +164,9 @@ fixed in firmware: it is a second line, not a calibration, and it does not
 replace the host's configured, initially empty envelope that keeps an
 uncalibrated rig inert (`REQ-AIM-002`, `REQ-SAF-004`).
 
-**`AIM`.** X ∈ [−90°, +90°], Y ∈ [0°, +45°]. *Provisional, pending Q26:* an
-out-of-range angle is refused (`REJECTED_ANGLE`) and the servos **do not move**.
-Failing closed is chosen over clamping and moving; the requirements document
-asks the maintainer to confirm it. `ACCEPTED` means the device has begun to
+**`AIM`.** X ∈ [−90°, +90°], Y ∈ [0°, +45°]. An out-of-range angle is
+refused (`REJECTED_ANGLE`) and the servos **do not move**: failing closed is
+chosen over clamping and moving (maintainer ruling, Q26, 2026-11-26). `ACCEPTED` means the device has begun to
 move, not that it has arrived. An `AIM` is judged on its angles alone, so it is
 accepted during a burst or a cool-down. `FIRE` does not wait for the servos to settle:
 the aiming command is sent on an earlier camera frame than the fire command, by

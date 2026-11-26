@@ -916,12 +916,12 @@ than a new obligation on `core/`.
 Unresolved specification gaps. **Agents must not invent answers to these** —
 raise them with the maintainer.
 
-One question is outstanding; every other raised so far has been resolved, see
-below. Add new rows here rather than guessing.
+*None outstanding.* Every question raised so far has been resolved; see below.
+Add new rows here rather than guessing.
 
 | #  | Question | Blocks |
 | -- | -------- | ------ |
-| Q26 | When the Arduino receives an aiming command with an angle outside its own envelope, does it **refuse** it (reply `REJECTED_ANGLE`, servos do not move) or **clamp** it and move to the clamped angle? `actuator_link.hpp` says "the receiver clamps them again", while `LinkStatus::REJECTED` is documented as angles outside the device's envelope. The protocol specification assumes **refuse**, because it fails closed and gives `REJECTED` a cause that can occur; the maintainer is asked to confirm. | Firmware behaviour; reconciling the `actuator_link.hpp` comment (ADR-0021 follow-up 2). Does not block the codec. |
+| —  | —        | —      |
 
 ### Resolved
 
@@ -933,7 +933,9 @@ evidence that writing the tests first does the job it is there to do. Q20 to
 Q24 were raised by the **architect**, before and while choosing a detection
 library (ADR-0019), and answered by the maintainer directly on 2026-10-04.
 Q25 was raised by the **test-engineer** while encoding ADR-0019 as executable
-tests, and answered by the maintainer on 2026-10-05.
+tests, and answered by the maintainer on 2026-10-05. Q26 was raised by the
+**architect** while specifying the device protocol (ADR-0021) and answered by
+the maintainer on 2026-11-26.
 
 | #  | Question                                          | Resolution                                                                 |
 | -- | ------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -962,6 +964,7 @@ tests, and answered by the maintainer on 2026-10-05.
 | Q23 | Whether any bird is an acceptable target         | **Yes**, any bird is an acceptable target for now. Maintainer ruling, 2026-10-04: the COCO `bird` proxy class is accepted and pigeon-only fine-tuning is not required. ADR-0019 |
 | Q24 | Camera capture resolution                        | **640 × 480**. Maintainer ruling, 2026-10-04. A deployment value, listed under Configured parameters; distinct from the model's own input size. `REQ-DET-004`, ADR-0019 |
 | Q25 | Inference thread count of zero or less        | **Clamped to one thread.** Maintainer ruling, 2026-10-05: a `num_threads <= 0` in `NcnnDetectorSettings` is treated as 1; it is not a load failure and adds no `ModelLoadStatus`. ADR-0019. |
+| Q26 | What the Arduino does with an aiming command whose angle lies outside its own envelope | **Refuse.** Maintainer ruling, 2026-11-26: it replies `REJECTED_ANGLE` and the servos do not move; it does not clamp and move. Fails closed, and gives `LinkStatus::REJECTED` a cause that can occur. `REQ-AIM-002`, ADR-0021, `device-protocol.md` section 5.1 |
 
 ### Corrections
 
