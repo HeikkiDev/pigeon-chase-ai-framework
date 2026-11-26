@@ -43,7 +43,7 @@ LinkStatus status_for(std::uint8_t result) noexcept {
 
 SerialActuatorLink::SerialActuatorLink(ByteStream& line, const pigeon::core::MonotonicClock& clock,
                                        LinkTimings timings)
-    : line_{line}, clock_{clock}, timings_{timings} {}
+    : line_{line}, clock_{clock}, timings_{timings}, last_poll_{clock.now().since_epoch} {}
 
 // Not built yet: refuse, so that nothing can be fired through a link that does
 // not exist. Replaced test-first by the exchanges of section 6.
@@ -70,6 +70,9 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
   if (!line_.is_open()) {
     return LinkStatus::UNAVAILABLE;
   }
+  // Bring the reader up to date first, so that a reply is not mistaken for a
+  // backlog because nobody polled for a while.
+  poll();
   if (!line_.write(wire)) {
     return LinkStatus::TRANSPORT_FAILURE;
   }
@@ -96,23 +99,39 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
 }
 
 void SerialActuatorLink::poll() noexcept {
+  const auto now = clock_.now().since_epoch;
+  const bool stalled = now - last_poll_ > timings_.stall_bound;
+  last_poll_ = now;
+  if (stalled) {
+    framer_.reset();  // half a message from before the stall is not the start of one
+  }
+
   std::array<std::uint8_t, 32> chunk{};
   for (;;) {
     const std::size_t count = line_.read(std::span<std::uint8_t>{chunk});
     if (count == 0) {
       return;
     }
+    if (stalled) {
+      continue;  // drained and dropped: it is old, and old is not evidence
+    }
     for (const std::uint8_t byte : std::span<const std::uint8_t>{chunk}.first(count)) {
       if (framer_.push(byte) == FramerEvent::MESSAGE) {
-        on_message(framer_.message());
+        on_message(framer_.message(), now);
       }
     }
   }
 }
 
-void SerialActuatorLink::on_message(ByteView encoded) noexcept {
+void SerialActuatorLink::on_message(ByteView encoded, std::chrono::milliseconds now) noexcept {
   const auto received = pigeon::protocol::receive_message(encoded, Side::HOST);
-  if (received.status != ReceiveStatus::VALID || received.type != to_byte(MessageType::REPLY)) {
+  // A message the host discards or finds unsupported is no evidence the device
+  // is there; a valid one is, whatever it turns out to answer (section 5).
+  if (received.status != ReceiveStatus::VALID) {
+    return;
+  }
+  last_heard_ = now;
+  if (received.type != to_byte(MessageType::REPLY)) {
     return;
   }
   // A reply answers the outstanding command if and only if its seq and
@@ -124,9 +143,15 @@ void SerialActuatorLink::on_message(ByteView encoded) noexcept {
 }
 
 LinkStatus SerialActuatorLink::health() const noexcept {
-  // Nothing has been read from the device yet, whatever the state of the line:
-  // a line that has just opened is UNAVAILABLE, not OK (section 7).
-  return LinkStatus::UNAVAILABLE;
+  // A line that has just opened is UNAVAILABLE, not OK: nothing is known about
+  // the device until it has been heard (section 7).
+  if (!line_.is_open() || !last_heard_.has_value()) {
+    return LinkStatus::UNAVAILABLE;
+  }
+  if (clock_.now().since_epoch - *last_heard_ >= timings_.silence_timeout) {
+    return LinkStatus::UNAVAILABLE;
+  }
+  return LinkStatus::OK;
 }
 
 }  // namespace pigeon::raspberry

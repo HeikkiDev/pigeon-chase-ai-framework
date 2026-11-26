@@ -36,10 +36,10 @@ struct LinkTimings {
 /// that every timing in the specification can be crossed in a test without
 /// waiting (`REQ-DEV-002`).
 ///
-/// **Work in progress.** `health()` before the device is heard and the
-/// `SAFE_STATE` exchange are implemented. `AIM` and `FIRE` refuse everything
-/// until their exchanges are built, which fails closed: only `LinkStatus::OK`
-/// permits a burst.
+/// **Work in progress.** Liveness (`UNAVAILABLE` or `OK`) and the `SAFE_STATE`
+/// exchange are implemented; the `faulted` and `rejected` flags are not. `AIM` and `FIRE` refuse
+/// everything until their exchanges are built, which fails closed: only `LinkStatus::OK` permits a
+/// burst.
 class SerialActuatorLink final : public pigeon::core::ActuatorLink {
  public:
   /// Sends nothing: nothing is known about the device until it has been heard
@@ -54,7 +54,13 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
   [[nodiscard]] pigeon::core::LinkStatus send_safe_state_command() override;
 
   /// Takes whatever has arrived off the line and acts on the valid messages in
-  /// it. Never waits. `send_*` calls it while they wait for a reply.
+  /// it, stamping each with the time it was taken. Never waits. `send_*` calls
+  /// it while they wait for a reply; whoever owns the link calls it at least
+  /// every 100 ms between commands, so that `health()` moves (section 7).
+  ///
+  /// If more than the stall bound has passed since it last ran, what the line
+  /// buffered meanwhile is discarded unread: a backlog of old heartbeats must not
+  /// make a stalled host look healthy.
   void poll() noexcept;
 
   /// Answered from state alone: transmits nothing and blocks on nothing
@@ -75,13 +81,17 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
                                                   std::uint8_t seq,
                                                   std::span<const std::uint8_t> wire);
 
-  void on_message(pigeon::protocol::ByteView encoded) noexcept;
+  void on_message(pigeon::protocol::ByteView encoded, std::chrono::milliseconds now) noexcept;
 
   ByteStream& line_;
   const pigeon::core::MonotonicClock& clock_;
   LinkTimings timings_;
   pigeon::protocol::MessageFramer framer_;
   std::optional<Pending> pending_;
+  /// When the host last read a valid device message (section 7).
+  std::optional<std::chrono::milliseconds> last_heard_;
+  /// When `poll` last ran, for the stall rule.
+  std::chrono::milliseconds last_poll_;
   std::uint8_t next_seq_{0};
 };
 
