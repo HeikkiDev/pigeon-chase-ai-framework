@@ -14,6 +14,7 @@ set(pigeon_gate_tests
   header_check_test.sh
   check_tidy_test.sh
   check_determinism_test.sh
+  check_tool_versions_test.sh
   support_test.sh
 )
 
