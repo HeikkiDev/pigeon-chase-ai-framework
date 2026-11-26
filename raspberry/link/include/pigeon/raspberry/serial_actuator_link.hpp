@@ -116,6 +116,9 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
   /// reader keeps running at the pace the stall rule assumes (section 7).
   void wait_for_line(std::chrono::milliseconds remaining) noexcept;
 
+  /// Whether a valid device message has been read in the last silence timeout.
+  [[nodiscard]] bool heard_within_silence_timeout() const noexcept;
+
   void on_message(pigeon::protocol::ByteView encoded, std::chrono::milliseconds now) noexcept;
 
   ByteStream& line_;

@@ -91,9 +91,10 @@ LinkStatus SerialActuatorLink::start_up(std::chrono::milliseconds max_wait) {
   }
   const auto deadline = clock_.now().since_epoch + max_wait;
 
-  // Nothing is sent until the device has been heard (section 8).
+  // Nothing is sent until the device has been heard (section 8): heard now, not
+  // at some time long past, which is what an opening line means.
   poll();
-  while (!last_heard_.has_value()) {
+  while (!heard_within_silence_timeout()) {
     const auto now = clock_.now().since_epoch;
     if (now >= deadline) {
       return LinkStatus::UNAVAILABLE;
@@ -172,12 +173,15 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
   LinkStatus outcome = LinkStatus::TRANSPORT_FAILURE;
   for (;;) {
     poll();
-    if (pending_->result.has_value()) {
-      outcome = status_for(*pending_->result);
+    const auto now = clock_.now().since_epoch;
+    // The deadline comes first: a reply read at or after it did not come in time,
+    // however it is worded (elapsed >= timeout, ADR-0014). It is then an unmatched
+    // reply, as any later one is.
+    if (now >= deadline) {
       break;
     }
-    const auto now = clock_.now().since_epoch;
-    if (now >= deadline) {  // elapsed >= timeout (ADR-0014)
+    if (pending_->result.has_value()) {
+      outcome = status_for(*pending_->result);
       break;
     }
     wait_for_line(deadline - now);
@@ -247,13 +251,18 @@ void SerialActuatorLink::on_message(ByteView encoded, std::chrono::milliseconds 
   }
 }
 
+bool SerialActuatorLink::heard_within_silence_timeout() const noexcept {
+  return last_heard_.has_value() &&
+         clock_.now().since_epoch - *last_heard_ < timings_.silence_timeout;
+}
+
 LinkStatus SerialActuatorLink::health() const noexcept {
   // A line that has just opened is UNAVAILABLE, not OK: nothing is known about
   // the device until it has been heard (section 7).
   if (!line_.is_open() || !last_heard_.has_value()) {
     return LinkStatus::UNAVAILABLE;
   }
-  if (clock_.now().since_epoch - *last_heard_ >= timings_.silence_timeout) {
+  if (!heard_within_silence_timeout()) {
     return LinkStatus::UNAVAILABLE;
   }
   if (faulted_) {
