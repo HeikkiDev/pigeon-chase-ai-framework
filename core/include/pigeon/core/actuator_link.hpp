@@ -88,8 +88,8 @@ enum class LinkStatus : std::uint8_t {
 /// It is a **protocol**, not merely a C++ type: the two sides run on different
 /// physical devices, so the obligations below hold for the firmware as much as
 /// for any C++ implementation. The wire encoding that carries these operations
-/// is specified separately in `docs/architecture/` (`REQ-COM-001`) and is not
-/// yet written.
+/// is specified separately, in `docs/architecture/device-protocol.md`
+/// (`REQ-COM-001`, ADR-0021).
 ///
 /// Obligations of every implementation:
 /// * **Safe on construction and on destruction.** The water actuator is
