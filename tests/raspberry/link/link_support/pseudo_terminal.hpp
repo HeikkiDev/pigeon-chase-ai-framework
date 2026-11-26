@@ -9,6 +9,7 @@
 #include <sys/select.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
@@ -65,7 +66,7 @@ class PseudoTerminal {
       const ssize_t n = ::write(master_, bytes.data() + done, bytes.size() - done);
       if (n < 0) {
         if (errno == EAGAIN || errno == EINTR) {
-          wait(/*for_read=*/false, 100);
+          static_cast<void>(wait(/*for_read=*/false, 100));
           continue;
         }
         return;
