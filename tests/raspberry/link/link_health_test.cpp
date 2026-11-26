@@ -12,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <optional>
 
 #include "link_support/simulated_device.hpp"
@@ -104,12 +105,26 @@ TEST(HealthSnapshot, EveryStateSurvivesPackingUnchanged) {
   }
 }
 
-TEST(HealthSnapshot, ATimeBeforeTheEpochIsKeptAsTheEpochWhichOnlyEverMeansLessHealthy) {
-  // It cannot be packed as it is. Moving it earlier can only make the silence
-  // look longer, so the snapshot errs towards UNAVAILABLE, never towards OK.
+TEST(HealthSnapshot, ATimeBeforeTheEpochIsKeptAsNeverHeard) {
+  // It cannot be packed as it is. Moving it to the epoch is not safe: with a clock
+  // that can itself be negative (a test's can), a device silent for longer than the
+  // timeout would then read OK. Never heard reads UNAVAILABLE, which is.
   const auto round_trip = unpack(pack(state(true, milliseconds{-5}, false, false)));
 
-  EXPECT_EQ(round_trip.last_heard, milliseconds{0});
+  EXPECT_FALSE(round_trip.last_heard.has_value());
+  EXPECT_EQ(health_from(round_trip, milliseconds{-100}, kSilence), LinkStatus::UNAVAILABLE);
+}
+
+TEST(HealthSnapshot, TheLatestTimeThatFitsIsKeptAndOneLaterIsKeptAsNeverHeard) {
+  constexpr std::int64_t latest = (std::int64_t{1} << 60) - 1;  // 60 bits of milliseconds
+
+  EXPECT_EQ(unpack(pack(state(true, milliseconds{latest}, false, false))).last_heard,
+            milliseconds{latest});
+  EXPECT_FALSE(
+      unpack(pack(state(true, milliseconds{latest + 1}, false, false))).last_heard.has_value());
+  EXPECT_FALSE(unpack(pack(state(true, milliseconds{std::numeric_limits<std::int64_t>::max()},
+                                 false, false)))
+                   .last_heard.has_value());
 }
 
 // --- the link answers with the same rule --------------------------------------
