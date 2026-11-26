@@ -86,16 +86,17 @@ run_tidy_step() {
 sandbox="$(new_check_tree Linux)"
 expect_exit 'runs clang-tidy without an empty argument off macOS' 0 \
   run_tidy_step "$sandbox"
-expect_output_contains 'passes only -p, --quiet and the sources off macOS' \
-  "[-p][build/macos-debug][--quiet][core/src/example.cpp]" \
-  cat "$sandbox/tidy-args"
+# Exact match, so a stray extra argument fails as well as an empty one.
+expect_exit 'passes exactly -p, --quiet and the sources off macOS' 0 \
+  grep -qxF -- "[-p][build/macos-debug][--quiet][core/src/example.cpp]" \
+  "$sandbox/tidy-args"
 
 # ------------------------------------------ on macOS: the SDK path, intact --
 sandbox="$(new_check_tree Darwin)"
 expect_exit 'runs clang-tidy with the SDK arguments on macOS' 0 \
   run_tidy_step "$sandbox"
-expect_output_contains 'keeps an SDK path containing spaces as one argument' \
-  "[--extra-arg=-isysroot][--extra-arg=/Applications/Xcode SDKs/MacOSX.sdk]" \
-  cat "$sandbox/tidy-args"
+expect_exit 'passes the SDK path, spaces intact, as one argument on macOS' 0 \
+  grep -qxF -- "[-p][build/macos-debug][--quiet][--extra-arg=-isysroot][--extra-arg=/Applications/Xcode SDKs/MacOSX.sdk][core/src/example.cpp]" \
+  "$sandbox/tidy-args"
 
 finish
