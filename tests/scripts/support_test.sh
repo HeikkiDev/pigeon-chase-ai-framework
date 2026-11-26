@@ -41,18 +41,27 @@ child_script() {
 # --------------------------------------------- sandboxes removed on exit --
 scratch="$(new_sandbox)/tmp"
 mkdir -p "$scratch"
-child="$(child_script 'sandbox="$(new_sandbox)"; [[ -d "$sandbox" ]] || exit 3')"
+child="$(child_script 'sandbox="$(new_sandbox)"; [[ -d "$sandbox" ]] || exit 3
+printf "%s\n" "$sandbox" > "$SANDBOX_RECORD"')"
+record="$(new_sandbox)/record"
 expect_exit 'a child test creating a sandbox runs cleanly' 0 \
-  env TMPDIR="$scratch" bash "$child"
+  env TMPDIR="$scratch" SANDBOX_RECORD="$record" bash "$child"
+# Positive control: the sandbox really was made under the TMPDIR given, so an
+# empty TMPDIR afterwards means it was removed, not that it went elsewhere.
+expect_exit 'created its sandbox under TMPDIR' 0 \
+  grep -q "^$scratch/" "$record"
 expect_exit 'leaves nothing behind in TMPDIR after it exits' 0 \
   test -z "$(ls -A "$scratch")"
 
 # --------------------------------------- git stays inside the sandbox --
 outer="$(new_sandbox)"
 git -C "$outer" init -q
+# The child fails unless the files land in the sandbox's own index, so the
+# outer repository staying empty cannot be explained by git simply failing.
 child="$(child_script 'sandbox="$(new_sandbox)"
-git -C "$sandbox" init -q
-git -C "$sandbox" add core')"
+git -C "$sandbox" init -q || exit 3
+git -C "$sandbox" add core || exit 3
+[[ -n "$(git -C "$sandbox" ls-files core)" ]] || exit 3')"
 expect_exit 'a child test running git in a sandbox under a hook environment runs cleanly' 0 \
   env GIT_DIR="$outer/.git" GIT_WORK_TREE="$outer" \
       GIT_INDEX_FILE="$outer/.git/index" bash "$child"
