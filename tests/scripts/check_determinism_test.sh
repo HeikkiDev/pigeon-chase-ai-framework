@@ -45,6 +45,12 @@ case " \$* " in
   *" --schedule-random "*)
     printf '[%s]' "\$@" > "\$(dirname "\$0")/../determinism-args"
     echo "stub ctest: ran the shuffled suite"
+    if [[ "$behaviour" == "fail-quiet" ]]; then
+      # ctest itself failing, with no test marked as failed: nothing to show, and
+      # the gate must still say what it was doing.
+      echo "Errors while running CTest"
+      exit 8
+    fi
     if [[ "$behaviour" == "fail" ]]; then
       # Shaped like real ctest output: the failing test's own output comes right
       # after its line, in the middle of the pass, and passing tests follow it.
@@ -96,6 +102,10 @@ expect_output_contains 'names the test that failed' \
 sandbox="$(new_check_tree fail)"
 expect_output_contains 'shows the failing test output even when many tests pass after it' \
   'stub failure detail' run_gate "$sandbox"
+
+sandbox="$(new_check_tree fail-quiet)"
+expect_output_contains 'still reports the failure when ctest marks no test as failed' \
+  'REQ-DEV-002' run_gate "$sandbox"
 
 sandbox="$(new_check_tree fail)"
 expect_output_contains 'still says which requirement it is about' \
