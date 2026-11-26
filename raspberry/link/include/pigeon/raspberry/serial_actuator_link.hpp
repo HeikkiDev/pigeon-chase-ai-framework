@@ -1,9 +1,15 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 
 #include "pigeon/core/actuator_link.hpp"
 #include "pigeon/core/clock.hpp"
+#include "pigeon/protocol/framer.hpp"
+#include "pigeon/protocol/message.hpp"
 #include "pigeon/raspberry/byte_stream.hpp"
 
 namespace pigeon::raspberry {
@@ -30,9 +36,10 @@ struct LinkTimings {
 /// that every timing in the specification can be crossed in a test without
 /// waiting (`REQ-DEV-002`).
 ///
-/// **Work in progress.** Only `health()` before the device is heard is
-/// implemented. The `send_*` operations refuse everything until the exchanges
-/// are built, which fails closed: only `LinkStatus::OK` permits a burst.
+/// **Work in progress.** `health()` before the device is heard and the
+/// `SAFE_STATE` exchange are implemented. `AIM` and `FIRE` refuse everything
+/// until their exchanges are built, which fails closed: only `LinkStatus::OK`
+/// permits a burst.
 class SerialActuatorLink final : public pigeon::core::ActuatorLink {
  public:
   /// Sends nothing: nothing is known about the device until it has been heard
@@ -46,14 +53,36 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
       const pigeon::core::FireCommand& command) override;
   [[nodiscard]] pigeon::core::LinkStatus send_safe_state_command() override;
 
+  /// Takes whatever has arrived off the line and acts on the valid messages in
+  /// it. Never waits. `send_*` calls it while they wait for a reply.
+  void poll() noexcept;
+
   /// Answered from state alone: transmits nothing and blocks on nothing
   /// (`REQ-COM-003`).
   [[nodiscard]] pigeon::core::LinkStatus health() const noexcept override;
 
  private:
-  [[maybe_unused]] ByteStream& line_;
-  [[maybe_unused]] const pigeon::core::MonotonicClock& clock_;
-  [[maybe_unused]] LinkTimings timings_;
+  /// The one command whose reply is awaited (stop-and-wait, section 6).
+  struct Pending {
+    std::uint8_t type;
+    std::uint8_t seq;
+    std::optional<std::uint8_t> result;
+  };
+
+  /// Transmits `wire`, then waits for the matching reply or the reply timeout,
+  /// and maps how the exchange ended to a status (section 6.1).
+  [[nodiscard]] pigeon::core::LinkStatus exchange(pigeon::protocol::MessageType type,
+                                                  std::uint8_t seq,
+                                                  std::span<const std::uint8_t> wire);
+
+  void on_message(pigeon::protocol::ByteView encoded) noexcept;
+
+  ByteStream& line_;
+  const pigeon::core::MonotonicClock& clock_;
+  LinkTimings timings_;
+  pigeon::protocol::MessageFramer framer_;
+  std::optional<Pending> pending_;
+  std::uint8_t next_seq_{0};
 };
 
 }  // namespace pigeon::raspberry
