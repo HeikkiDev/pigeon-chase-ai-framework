@@ -167,7 +167,7 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
   }
 
   // The command is never retransmitted, whatever happens next (REQ-SAF-007).
-  pending_ = Pending{to_byte(type), seq, std::nullopt};
+  pending_ = Pending{.type = to_byte(type), .seq = seq, .result = std::nullopt};
   const auto deadline = clock_.now().since_epoch + timings_.reply_timeout;
 
   LinkStatus outcome = LinkStatus::TRANSPORT_FAILURE;
@@ -180,8 +180,8 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
     if (now >= deadline) {
       break;
     }
-    if (pending_->result.has_value()) {
-      outcome = status_for(*pending_->result);
+    if (const auto result = pending_result(); result.has_value()) {
+      outcome = status_for(*result);
       break;
     }
     wait_for_line(deadline - now);
@@ -249,6 +249,10 @@ void SerialActuatorLink::on_message(ByteView encoded, std::chrono::milliseconds 
       received.reply.command_type == pending_->type) {
     pending_->result = received.reply.result;
   }
+}
+
+std::optional<std::uint8_t> SerialActuatorLink::pending_result() const noexcept {
+  return pending_.has_value() ? pending_->result : std::nullopt;
 }
 
 bool SerialActuatorLink::heard_within_silence_timeout() const noexcept {
