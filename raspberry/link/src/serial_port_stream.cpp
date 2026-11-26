@@ -138,7 +138,8 @@ bool SerialPortStream::write(std::span<const std::uint8_t> bytes) noexcept {
   const auto deadline = std::chrono::steady_clock::now() + settings_.write_timeout;
   std::size_t done = 0;
   while (done < bytes.size()) {
-    const ssize_t n = ::write(fd_, bytes.data() + done, bytes.size() - done);
+    const std::span<const std::uint8_t> rest = bytes.subspan(done);
+    const ssize_t n = ::write(fd_, rest.data(), rest.size());
     if (n > 0) {
       done += static_cast<std::size_t>(n);
       continue;
