@@ -48,12 +48,22 @@ plant a real violation and assert the gate rejects it. See ADR-0002.
 | `make clean`                | Delete `build/`.                                    |
 | `ctest --preset macos-debug -R <regex>` | Run a subset of tests.                  |
 
-First-time setup: `brew install cmake ninja llvm`. GoogleTest is fetched
-automatically by CMake; do not vendor or install it manually.
+First-time setup: `brew install cmake ninja`, then the pinned linters:
 
-If `clang-format` or `clang-tidy` are missing, `check.sh` warns and skips
-those steps locally, but CI runs with `PIGEON_STRICT_TOOLS=1` and will fail.
-Install them.
+```bash
+python3 -m venv ~/.venvs/pigeon-lint
+~/.venvs/pigeon-lint/bin/pip install -r scripts/lint-tools.txt
+export PATH="$HOME/.venvs/pigeon-lint/bin:$PATH"
+```
+
+GoogleTest is fetched automatically by CMake; do not vendor or install it
+manually.
+
+`clang-format` and `clang-tidy` are pinned to the versions in
+`scripts/lint-tools.txt` (ADR-0022), because different major versions disagree
+about valid code. If they are missing or are another version, `check.sh` warns
+and carries on locally, but CI runs with `PIGEON_STRICT_TOOLS=1` and fails.
+Install the pinned versions as above.
 
 ## Repository layout
 

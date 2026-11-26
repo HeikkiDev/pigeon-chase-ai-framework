@@ -54,8 +54,9 @@ GitHub's hosted `ubuntu-24.04-arm` runner and executes exactly what the macOS
   hash of the workflow file, so changing the build flags rebuilds it. A cache
   hit skips the build.
 * **clang-format / clang-tidy:** installed from PyPI (`clang-format`,
-  `clang-tidy` wheels) into a venv put first on `PATH`. They are not pinned,
-  matching the unpinned Homebrew `llvm` on the macOS job (ADR-0017); the gate
+  `clang-tidy` wheels) into a venv put first on `PATH`. They were
+  unpinned at the time, matching Homebrew `llvm` on the macOS job (ADR-0017),
+  and are pinned since ADR-0022; the gate
   prints the version it used.
 * **Presets:** the existing `macos-debug` preset is used unchanged. It sets no
   platform-specific flags and configures on Linux as is; renaming the presets

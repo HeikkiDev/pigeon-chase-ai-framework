@@ -1,6 +1,7 @@
 # ADR-0017 — Static checks run before the build, and toolchain versions are reported rather than pinned
 
-**Status:** Accepted
+**Status:** Accepted. The **Versions** decision (reported, not pinned) is superseded by
+ADR-0022.
 **Date:** 2026-09-20
 **Affects:** `scripts/check.sh`, ADR-0002
 
