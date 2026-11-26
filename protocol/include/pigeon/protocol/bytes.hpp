@@ -99,4 +99,31 @@ class MutableBytes {
   std::size_t size_{0};
 };
 
+/// A fixed amount of storage that is owned, not borrowed: the buffer an encoder
+/// builds a message in without allocating.
+///
+/// It starts zeroed. `writable()` and `view()` hand out the same bounds-checked
+/// views as everywhere else, so nothing reads or writes it by raw pointer.
+template <std::size_t Capacity>
+class FixedBuffer {
+ public:
+  constexpr FixedBuffer() noexcept = default;
+
+  /// The whole buffer, for writing.
+  [[nodiscard]] constexpr MutableBytes writable() noexcept {
+    return MutableBytes{bytes_, Capacity};
+  }
+
+  /// The first `count` bytes, read-only, clipped to the capacity.
+  [[nodiscard]] constexpr ByteView view(std::size_t count) const noexcept {
+    return ByteView{bytes_, count < Capacity ? count : Capacity};
+  }
+
+ private:
+  // The one fixed array in the module: there is nothing else to hold it in that
+  // exists on every toolchain the firmware might use.
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays)
+  std::uint8_t bytes_[Capacity]{};
+};
+
 }  // namespace pigeon::protocol
