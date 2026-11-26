@@ -1,11 +1,12 @@
 # ADR-0021 — Device protocol: framed binary messages, heartbeat-based health, a shared codec
 
-**Status:** Accepted
+**Status:** Proposed — awaiting the maintainer's confirmation of D4 and of open question Q26
 **Date:** 2026-11-26
 **Affects:** `REQ-COM-001`, `REQ-COM-002`, `REQ-COM-003`; `REQ-AIM-002`,
 `REQ-SAF-001`, `REQ-SAF-004`, `REQ-SAF-005`, `REQ-SAF-007`;
 `docs/architecture/device-protocol.md`; `core/include/pigeon/core/actuator_link.hpp`
-(comment only); a planned `protocol/` module; ADR-0007, ADR-0016
+(comments only); a planned `protocol/` module; ADR-0007, ADR-0011, ADR-0014,
+ADR-0016
 
 ## Context
 
@@ -34,6 +35,9 @@ Constraints that bear on it:
 
 ## Decision
 
+D1 to D3 and D4 are parts of one decision, the design of the device protocol;
+D4 records a part deliberately left out.
+
 **D1 — Binary messages, delimited and checked.** One message is
 `COBS(body ‖ CRC-16) ‖ 0x00`: a three-byte header (version, type, sequence)
 and a fixed-length payload per type, little-endian, angles as signed 16-bit
@@ -61,21 +65,26 @@ C++17 so common Arduino toolchains can build it. `core/` does not depend on it
 here.
 
 **D4 — No host-silence watchdog on the device.** A device that closes its own
-valve when the Pi goes quiet was considered and **not adopted**. `REQ-SAF-001`
-already requires that every burst ends from the device's own timer, in at most
-500 ms, with no further message, so a silent host can never leave the valve
-open longer than that. A watchdog implemented in the same firmware shares its
-timer and so cannot protect against a faulty burst timer, and it would cost a
-new host-to-device message, a second timer and a new safety requirement to
-guard against something already bounded. A hardware watchdog on the
-microcontroller, which *is* independent of firmware faults, is a different
-mechanism and belongs to the firmware step.
+valve when the Pi goes quiet was considered and **not adopted**.
+`REQ-SAF-001` already requires that every burst ends from the device's own
+timer, in at most 500 ms, with no further message, so a silent host can never
+leave the valve open longer than that. A software watchdog would cost a new
+host-to-device message, a second timer and a new safety requirement to guard
+against something already bounded; it would not guard against a faulty burst
+timer, because it would depend on firmware timing too; and it would not limit a
+host that keeps talking, which the device bounds instead with its own burst
+limit and cool-down (the 6-per-minute rate is the host's alone). The mechanism
+that *is* independent of firmware faults is the microcontroller's hardware
+watchdog, which belongs to the firmware step and is not a protocol feature.
 
-*Provenance of D1–D4.* The maintainer delegated all four to the architect's
-recommendations ("your recommendations", 2026-11-26). For D4 the recommendation
-was first drafted as "adopt" and reversed to "do not adopt" while writing the
-specification, once the burst bound above was seen to cover the case; the
-change is recorded here rather than silently made.
+*Provenance.* The maintainer delegated the four decisions to the architect's
+recommendations ("your recommendations", 2026-11-26). D1 to D3 follow the
+recommendations as put to the maintainer. **D4 does not:** the recommendation
+was first drafted as "adopt" and was reversed to "do not adopt" while the
+specification was being written, once the burst bound above was seen to cover
+the case. The maintainer approved a recommendation the text no longer shows, so
+this ADR stays *Proposed* until the maintainer confirms the reversal. Q26, which
+the specification answers provisionally, is the other open item.
 
 ## Alternatives considered
 
@@ -116,6 +125,10 @@ change is recorded here rather than silently made.
   receiver clamps them again"), and is recorded as open question Q26.
 * A shared module constrains the C++ that `protocol/` may use, and the
   firmware toolchain has not been chosen.
+* Health can read `OK` for up to 1.5 s after the device stops, because the
+  silence timeout tolerates two lost heartbeats. A dead device fires nothing and
+  a command sent into it faults, so nothing unsafe results, but the window is
+  real and the timeout is a parameter.
 
 ### Follow-up work
 
