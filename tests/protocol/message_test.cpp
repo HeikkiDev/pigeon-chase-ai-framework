@@ -14,6 +14,8 @@
 #include <vector>
 
 #include "pigeon/protocol/bytes.hpp"
+#include "pigeon/protocol/cobs.hpp"
+#include "pigeon/protocol/crc16.hpp"
 #include "pigeon/protocol/message.hpp"
 #include "support/hex.hpp"
 #include "support/vectors.hpp"
@@ -124,6 +126,20 @@ TEST(MessageEncode, ProducesEachSpecificationVectorExactly) {
     EXPECT_EQ(result.length, result.wire.size());
     EXPECT_TRUE(result.guard_intact);
   }
+}
+
+// Verifies: REQ-COM-001 — section 4.2: heartbeat bits 1 to 7 are reserved and
+// "sent as zero", so an encoder asked to send them sends zero instead. Setting
+// every bit gives the same bytes as setting only the one that is defined.
+TEST(MessageEncode, SendsReservedHeartbeatBitsAsZero) {
+  const auto encoded = [](std::uint8_t seq, std::uint8_t flags) {
+    return encode_with_capacity(max_wire_message_bytes, [=](MutableBytes out) {
+      return encode_heartbeat(seq, HeartbeatPayload{flags}, out);
+    });
+  };
+
+  EXPECT_EQ(to_hex(encoded(255, 0xFF).wire), to_hex(wire_of(valid_vectors[7].wire)));  // V8
+  EXPECT_EQ(to_hex(encoded(0, 0xFE).wire), to_hex(wire_of(valid_vectors[6].wire)));    // V7
 }
 
 // Verifies: REQ-COM-001 — the reply a device sends to a message it cannot
@@ -373,6 +389,185 @@ TEST(MessageReceive, DiscardsAnythingTooShortToHoldAHeaderAndACrc) {
   }
 }
 
+// Verifies: REQ-COM-001 — what a host reads from a message that is not a valid
+// reply must never look like an accepted one. `ACCEPTED` is the result code 0, so
+// a payload that merely defaulted to zero would read as success, and a host that
+// forgot to check the status first would take a discarded or unsupported message
+// for an accepted command. Anything that is not a valid reply carries a result
+// outside the defined codes, which the host treats as a fault.
+TEST(MessageReceive, NeverLooksLikeAnAcceptedReplyUnlessItIsOne) {
+  const Received nothing;
+  EXPECT_NE(nothing.reply.result, to_byte(ResultCode::ACCEPTED));
+  EXPECT_GT(nothing.reply.result, to_byte(ResultCode::REJECTED_UNSUPPORTED));
+  EXPECT_EQ(ReplyPayload{}.result, ReplyPayload::no_result);
+
+  const char* not_replies[] = {
+      "0A 01 01 06 6C EE DC 05 E4 C6 00",  // N1: bad CRC
+      "06 01 02 08 F4 01 03 53 86 00",     // N2
+      "06 01 7F 03 A8 D3 00",              // N3
+      "06 02 03 04 2B B7 00",              // N4
+      "03 01 82 01 03 4E A7 00",           // V7: a valid heartbeat
+  };
+  for (const char* wire : not_replies) {
+    SCOPED_TRACE(wire);
+    const Received received = receive_hex(wire, Side::HOST);
+    EXPECT_NE(received.reply.result, to_byte(ResultCode::ACCEPTED));
+  }
+
+  const Bytes garbage = bytes_from_hex("05 11 22");
+  EXPECT_NE(receive_message(view_of(garbage), Side::HOST).reply.result,
+            to_byte(ResultCode::ACCEPTED));
+}
+
+// Verifies: REQ-COM-001 — section 10.2, closing paragraph: the same negative
+// inputs, received by the host in place of the device, are discarded or not
+// valid, and none of them is a message the host would act on.
+TEST(MessageReceive, HostDisregardsTheNegativeVectorsToo) {
+  struct Case {
+    const char* wire;
+    ReceiveStatus status;
+  };
+  const Case cases[] = {
+      {"0A 01 01 06 6C EE DC 05 E4 C6 00", ReceiveStatus::DISCARDED_CHECK},  // N1
+      {"06 01 02 08 F4 01 03 53 86 00", ReceiveStatus::UNSUPPORTED_TYPE},    // N2: a command type
+      {"06 01 7F 03 A8 D3 00", ReceiveStatus::UNSUPPORTED_TYPE},             // N3
+      {"06 02 03 04 2B B7 00", ReceiveStatus::UNSUPPORTED_VERSION},          // N4
+      {"08 01 01 05 01 02 6A 35 00", ReceiveStatus::UNSUPPORTED_TYPE},       // N5: a command type
+      {"08 01 02 08 F5 01 81 03 00", ReceiveStatus::UNSUPPORTED_TYPE},       // N9: a command type
+  };
+
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.wire);
+    EXPECT_EQ(receive_hex(c.wire, Side::HOST).status, c.status);
+  }
+  const Bytes oversize(17, 0x11);
+  EXPECT_EQ(receive_message(view_of(oversize), Side::HOST).status,
+            ReceiveStatus::DISCARDED_FRAMING);  // N6
+  const Bytes overrun = bytes_from_hex("05 11 22");
+  EXPECT_EQ(receive_message(view_of(overrun), Side::HOST).status,
+            ReceiveStatus::DISCARDED_FRAMING);  // N7
+  EXPECT_EQ(receive_message(ByteView{}, Side::HOST).status,
+            ReceiveStatus::DISCARDED_FRAMING);  // N8
+}
+
+// Verifies: REQ-COM-001 — the whole of section 10.2's N to R pipeline in one
+// piece: what the receiver reports about a message it cannot interpret is
+// exactly what is needed to build the specified reply to it, byte for byte.
+TEST(MessageReceive, WhatItReportsBuildsTheSpecifiedReplyToEachUnsupportedMessage) {
+  struct Case {
+    const char* negative;
+    const char* reply;
+  };
+  const Case cases[] = {
+      {"06 01 02 08 F4 01 03 53 86 00", "08 01 81 08 02 04 96 9F 00"},  // N2 -> R2
+      {"06 01 7F 03 A8 D3 00", "08 01 81 03 7F 04 62 11 00"},           // N3 -> R3
+      {"06 02 03 04 2B B7 00", "08 01 81 04 03 04 C6 D9 00"},           // N4 -> R4
+      {"08 01 01 05 01 02 6A 35 00", "08 01 81 05 01 04 94 88 00"},     // N5 -> R5
+  };
+
+  for (const Case& c : cases) {
+    SCOPED_TRACE(c.negative);
+    const Received received = receive_hex(c.negative, Side::DEVICE);
+    ASSERT_TRUE(pigeon::protocol::is_unsupported(received.status));
+
+    const Encoded reply =
+        encode_with_capacity(max_wire_message_bytes, [&received](MutableBytes out) {
+          return encode_reply(
+              received.seq, ReplyPayload{received.type, to_byte(ResultCode::REJECTED_UNSUPPORTED)},
+              out);
+        });
+
+    EXPECT_EQ(to_hex(reply.wire), to_hex(wire_of(c.reply)));
+  }
+}
+
+// A message with a *good CRC* and the given header fields and payload length, as
+// the line would deliver it: what the receiving steps 3 to 5 decide about.
+Bytes message_with_good_crc(std::uint8_t version, std::uint8_t type, std::uint8_t seq,
+                            std::size_t payload_length) {
+  Bytes body{version, type, seq};
+  for (std::size_t i = 0; i < payload_length; ++i) {
+    body.push_back(static_cast<std::uint8_t>(0x10 + i));
+  }
+  const std::uint16_t crc = pigeon::protocol::crc16(view_of(body));
+  body.push_back(static_cast<std::uint8_t>(crc & 0xFFU));
+  body.push_back(static_cast<std::uint8_t>(crc >> 8U));
+
+  Bytes storage(pigeon::protocol::cobs_max_encoded_size(body.size()), 0);
+  const pigeon::protocol::CobsResult encoded =
+      pigeon::protocol::cobs_encode(view_of(body), MutableBytes{storage.data(), storage.size()});
+  EXPECT_EQ(encoded.status, pigeon::protocol::CobsStatus::OK);
+  storage.resize(encoded.length);
+  return storage;
+}
+
+// Verifies: REQ-COM-001 — section 5, steps 3 to 5, for every header the line
+// could carry: every type byte, five versions, payload lengths 0 to 6, on both
+// sides. A message is valid if and only if its version is 1, this side receives
+// its type and its payload has that type's length; otherwise the *first* failing
+// step is the one reported, and the sequence number and type are echoed. The
+// expectation is written out by hand here, from the specification's table, not
+// derived from the code under test.
+TEST(MessageReceive, ClassifiesEveryHeaderAndPayloadLengthAsTheSpecificationSays) {
+  const auto payload_length_of = [](std::uint8_t type) -> int {
+    switch (type) {
+      case 0x01:
+        return 4;  // AIM
+      case 0x02:
+        return 2;  // FIRE
+      case 0x03:
+        return 0;  // SAFE_STATE
+      case 0x81:
+        return 2;  // REPLY
+      case 0x82:
+        return 1;  // HEARTBEAT
+      default:
+        return -1;
+    }
+  };
+  const auto device_receives = [](std::uint8_t type) {
+    return type == 0x01 || type == 0x02 || type == 0x03;
+  };
+  const auto host_receives = [](std::uint8_t type) { return type == 0x81 || type == 0x82; };
+
+  std::size_t valid = 0;
+  for (const std::uint8_t version : {std::uint8_t{0}, std::uint8_t{1}, std::uint8_t{2},
+                                     std::uint8_t{0x80}, std::uint8_t{0xFF}}) {
+    for (unsigned type_value = 0; type_value < 256; ++type_value) {
+      const auto type = static_cast<std::uint8_t>(type_value);
+      for (std::size_t length = 0; length <= 6; ++length) {
+        const Bytes encoded = message_with_good_crc(version, type, 0x5A, length);
+        for (const Side side : {Side::DEVICE, Side::HOST}) {
+          const bool receives = side == Side::DEVICE ? device_receives(type) : host_receives(type);
+          ReceiveStatus expected = ReceiveStatus::VALID;
+          if (version != 1) {
+            expected = ReceiveStatus::UNSUPPORTED_VERSION;
+          } else if (!receives) {
+            expected = ReceiveStatus::UNSUPPORTED_TYPE;
+          } else if (static_cast<int>(length) != payload_length_of(type)) {
+            expected = ReceiveStatus::UNSUPPORTED_LENGTH;
+          }
+
+          const Received received = receive_message(view_of(encoded), side);
+
+          ASSERT_EQ(received.status, expected)
+              << "version " << static_cast<int>(version) << " type " << type_value << " length "
+              << length << (side == Side::DEVICE ? " at the device" : " at the host");
+          ASSERT_EQ(received.type, type);
+          ASSERT_EQ(received.seq, 0x5A);
+          ASSERT_EQ(received.version, version);
+          if (expected == ReceiveStatus::VALID) {
+            ++valid;
+          }
+        }
+      }
+    }
+  }
+  // Three device commands and two host messages are valid at version 1 and their
+  // own length: a test that never reached `VALID` would prove nothing about it.
+  EXPECT_EQ(valid, 5U);
+}
+
 // ---------------------------------------------------------------- round trips
 
 Bytes encode_for_round_trip(std::size_t index, std::uint8_t seq, unsigned a, unsigned b) {
@@ -436,7 +631,9 @@ TEST(Message, EncodeThenReceiveRecoversEveryField) {
       const Bytes beat = encode_for_round_trip(4, s, a, 0);
       const Received r_beat = receive_message(view_of(beat), Side::HOST);
       ASSERT_EQ(r_beat.status, ReceiveStatus::VALID);
-      ASSERT_EQ(r_beat.heartbeat.flags, static_cast<std::uint8_t>(a));
+      // Only the defined bit survives: the others are reserved and sent as zero.
+      ASSERT_EQ(r_beat.heartbeat.flags,
+                static_cast<std::uint8_t>(a & HeartbeatPayload::actuator_active));
     }
     const Bytes safe = encode_for_round_trip(2, s, 0, 0);
     const Received r_safe = receive_message(view_of(safe), Side::DEVICE);
@@ -448,11 +645,13 @@ TEST(Message, EncodeThenReceiveRecoversEveryField) {
 
 // Verifies: REQ-COM-001 — "malformed input is rejected without undefined
 // behaviour": the receiver answers every input of up to two bytes, exhaustively,
-// and 30000 seeded longer ones, on both sides, with a status. Whatever it calls
-// valid must be a message the encoder could have produced: re-encoding the
-// fields it reports is accepted and reports the same fields. Under the
-// sanitizers (`make asan`) this is also the evidence that no read leaves the
-// input.
+// and 30000 seeded longer ones, on both sides, with a status. This is a
+// does-not-crash test and means something chiefly under the sanitizers
+// (`make asan`), which is the evidence that no read leaves the input. Arbitrary
+// bytes almost never carry a good CRC, so it rarely reaches a *valid* message;
+// that is what the exhaustive classification test above is for. If one is
+// reached, re-encoding the fields it reports must be accepted and report the
+// same fields.
 TEST(MessageReceive, AnswersEveryShortInputAndSurvivesArbitraryBytes) {
   const auto check = [](const Bytes& input) {
     for (const Side side : {Side::DEVICE, Side::HOST}) {

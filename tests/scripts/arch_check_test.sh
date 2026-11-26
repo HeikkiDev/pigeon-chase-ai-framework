@@ -352,6 +352,96 @@ EOF2
   expect_exit "rejects '${construct%% *}...' in protocol/" 1 "$ARCH_CHECK" --root "$sandbox"
 done
 
+# Each construct on its own, so that no one word in the list can be dropped
+# unnoticed because another happened to catch the same offender.
+for construct in 'void only_try() { try { } }' \
+                 'void only_catch() { catch (...) { } }' \
+                 'const void* kind(int x) { return &typeid(x); }'; do
+  sandbox="$(new_sandbox)"
+  write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<EOF2
+#pragma once
+namespace pigeon::protocol {
+${construct}
+}  // namespace pigeon::protocol
+EOF2
+  expect_exit "rejects '${construct%% *} ${construct#* }' in protocol/" 1 "$ARCH_CHECK" --root "$sandbox"
+done
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+inline constexpr const char* port = "/dev/ttyUSB0";
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a device path in protocol/' 1 "$ARCH_CHECK" --root "$sandbox"
+
+# ------------------------------------------------------ block comments are not code --
+#
+# A construct after a block comment is still code, whatever the comment looked like.
+# The gate once treated a `*` inside a one-line block comment as the start of one
+# that never ended, and so stopped looking at the rest of the file.
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+/** A doc comment, as people write them. */
+inline int* leak() { return new int(1); }
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a construct that follows a one-line /** doc */ comment' 1 "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+/* a * b */
+inline int* leak() { return new int(1); }
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a construct that follows a block comment containing a star' 1 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+/* a comment that goes on
+   for several lines and says new, throw and virtual
+   until here */ inline int* leak() { return new int(1); } /* and another */
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects code on the line where a multi-line comment closes, even with another comment after it' 1 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+inline const char* text() { return "/* not a comment"; }
+inline int* leak() { return new int(1); }
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a construct after a string that merely contains a comment opener' 1 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/clean.hpp" <<'EOF2'
+#pragma once
+#include <cstdint>
+namespace pigeon::protocol {
+/**
+ * Prose may say new, delete, throw, try, catch, virtual, dynamic_cast and typeid
+ * as often as it likes: a star at the start of each line, and words in a
+ * multi-line comment, are not constructs.
+ */
+/** One line of the same, with a * in it and the word virtual. */
+inline constexpr std::uint8_t value = 1;  /* trailing, with new in it */
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'accepts words in block comments of every shape' 0 "$ARCH_CHECK" --root "$sandbox"
+
 sandbox="$(new_sandbox)"
 write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
 #pragma once
