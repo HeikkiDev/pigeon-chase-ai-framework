@@ -535,16 +535,22 @@ key/value format needs no third-party parser, which matters on a 1 GB target.
   distinguishes acceptance from refusal, and the device emits a periodic
   heartbeat so that silence is detectable as a fault (`REQ-COM-003`).
 
-**Blocked on work not yet done.** The protocol is now specified
-(`docs/architecture/device-protocol.md`, ADR-0021) but not yet implemented.
-`core/` deliberately models the device boundary as *operations* —
-`ActuatorLink` — and not as an encoding (ADR-0007), so there is nothing in
-`core/` a test could assert against without inventing an API. This requirement
-will therefore be reported `UNVERIFIED` by `scripts/trace.sh` until the wire
-protocol is implemented in `raspberry/` and `arduino/` and its codec is tested
-against the specification's vectors. That is outstanding work with a known
-owner, not a missing test: recorded here so the permanent `UNVERIFIED` line is
-explained rather than mysterious.
+**Status of the work.** The protocol is specified
+(`docs/architecture/device-protocol.md`, ADR-0021) and its codec is built and
+tested in `protocol/`, with no serial device: CRC-16, COBS, the messages, the
+receiving steps and the byte-at-a-time framer, reproducing the specification's
+normative vectors, rejecting malformed input at every step, and clean under the
+sanitizers. `core/` models the device boundary as *operations*, not as an
+encoding (ADR-0007), so these tests live in `tests/protocol/` and not against
+`core/`. `scripts/trace.sh` therefore reports this requirement as cited.
+
+That is what its acceptance criteria ask, and it is not the whole of the work on
+the device link. Not yet built: the host's use of the codec behind
+`ActuatorLink` (matching replies to commands, deriving `health()` from the
+heartbeat), the serial port, and the firmware that enforces the device's own
+limits (ADR-0021, follow-ups 2 to 4). Those are where `REQ-COM-002`,
+`REQ-COM-003` and the device half of `REQ-AIM-002`, `REQ-SAF-001` and
+`REQ-SAF-005` meet real hardware, and they are tracked there.
 
 ### REQ-COM-002 — Fail-safe on communication loss
 

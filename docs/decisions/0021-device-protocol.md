@@ -136,9 +136,10 @@ specification raised, Q26: out-of-range angles are **refused**, not clamped.
 
 Each is its own change, test-first:
 
-1. **The codec** (`protocol/`): CRC, COBS and message encode/decode, tested
-   against the vectors; clang-tidy and the architecture check extended to the
-   new module.
+1. **The codec** (`protocol/`): CRC, COBS, message encode/decode and the
+   framer, tested against the vectors. *Done:* clang-tidy, the architecture
+   check, the header self-containment check and the workflow check are extended
+   to the module, and the tests run clean under the sanitizers.
 2. **The host link** (`raspberry/`): a `SerialActuatorLink` over an abstract
    byte stream, tested against a simulated device, with `health()` derived as
    in the specification.
@@ -149,10 +150,13 @@ Each is its own change, test-first:
 
 ## Verification
 
-* The vectors in `docs/architecture/device-protocol.md` become tests in
-  follow-up 1; until then `REQ-COM-001` stays reported `UNVERIFIED` by
-  `scripts/trace.sh`, which is the intended state of work that is specified
-  but not built.
-* This ADR creates no code to check. Follow-up 1 adds the `protocol/` module
-  and extends `scripts/arch-check.sh` to it, so that "no hardware or platform
-  headers" holds there as it does in `core/`.
+* The vectors in `docs/architecture/device-protocol.md` are tests in
+  `tests/protocol/`, so `REQ-COM-001` is reported as cited by
+  `scripts/trace.sh`. The host link and the firmware are not built, and the
+  requirement's note says so.
+* `scripts/arch-check.sh` holds `protocol/` to this ADR mechanically: only the
+  allowlisted freestanding headers, no hardware or platform header, no I/O, no
+  clock, no allocation, exceptions, virtual functions or RTTI, and no dependence
+  on the rest of the repository. `scripts/header-check.sh` compiles each of its
+  headers alone, and `scripts/tdd-check.sh` holds it to red-before-green. Each
+  has tests that plant a violation and assert the gate rejects it.
