@@ -17,6 +17,7 @@ target_include_directories(pigeon_protocol
 add_library(pigeon_protocol_header_check OBJECT
   src/public_headers.cpp
   include/pigeon/protocol/bytes.hpp
+  include/pigeon/protocol/cobs.hpp
   include/pigeon/protocol/crc16.hpp
 )
 

@@ -9,4 +9,5 @@
 // It defines no behaviour and must never acquire any.
 
 #include "pigeon/protocol/bytes.hpp"
+#include "pigeon/protocol/cobs.hpp"
 #include "pigeon/protocol/crc16.hpp"
