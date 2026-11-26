@@ -4,6 +4,7 @@
 // the line, built from the real codec, whose only clock is the test's own), used
 // by REQ-COM-001, REQ-COM-002, REQ-COM-003, REQ-SAF-007.
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -11,6 +12,7 @@
 #include <deque>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include "pigeon/protocol/bytes.hpp"
@@ -54,8 +56,10 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   [[nodiscard]] bool is_open() const noexcept override { return open_; }
 
   [[nodiscard]] std::size_t read(std::span<std::uint8_t> out) noexcept override {
+    release_due_replies();
+    const std::size_t limit = one_byte_reads_ ? std::min<std::size_t>(out.size(), 1) : out.size();
     std::size_t count = 0;
-    while (count < out.size() && !outbox_.empty()) {
+    while (count < limit && !outbox_.empty()) {
       out[count++] = outbox_.front();
       outbox_.pop_front();
     }
@@ -76,10 +80,17 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   }
 
   void wait_readable(std::chrono::milliseconds max) noexcept override {
+    release_due_replies();
     if (!outbox_.empty()) {
       return;
     }
     const auto now = clock_.now().since_epoch;
+    if (!delayed_.empty() && delayed_.front().due <= now + max &&
+        (!heartbeat_interval_.has_value() || delayed_.front().due <= next_heartbeat_)) {
+      clock_.advance_by(delayed_.front().due - now);
+      release_due_replies();
+      return;
+    }
     if (heartbeat_interval_.has_value() && next_heartbeat_ <= now + max) {
       clock_.advance_by(next_heartbeat_ - now);
       emit_heartbeat();
@@ -99,6 +110,20 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   void start_heartbeats(std::chrono::milliseconds interval) noexcept {
     heartbeat_interval_ = interval;
     next_heartbeat_ = clock_.now().since_epoch + interval;
+  }
+  /// Hold every reply back for this long after its command arrived, as a slow
+  /// line or a busy device would. The reply is released while the link waits.
+  void delay_replies(std::chrono::milliseconds delay) noexcept { reply_delay_ = delay; }
+  /// Hand the link one byte per `read`, so that a message arrives in pieces.
+  void deliver_one_byte_per_read() noexcept { one_byte_reads_ = true; }
+  /// Put a well-formed `REPLY` on the line now, whether or not anything is
+  /// waiting for it: a late reply, or one for a command the host gave up on.
+  void emit_reply(std::uint8_t seq, std::uint8_t command_type, std::uint8_t result) {
+    std::array<std::uint8_t, pigeon::protocol::max_wire_message_bytes> wire{};
+    const auto length =
+        pigeon::protocol::encode_reply(seq, pigeon::protocol::ReplyPayload{command_type, result},
+                                       pigeon::protocol::MutableBytes{wire.data(), wire.size()});
+    emit_raw(std::span<const std::uint8_t>{wire.data(), length});
   }
   /// Receive the next `count` commands without answering them, then answer.
   void stay_silent_for(std::size_t count) noexcept { silent_for_ = count; }
@@ -171,7 +196,20 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
       std::uint8_t& damaged = reply[reply.size() - 2];  // last byte before the delimiter
       damaged = (damaged == 0x55) ? 0xAA : 0x55;
     }
-    emit_raw(reply);
+    if (reply_delay_ > std::chrono::milliseconds{0}) {
+      Delayed late{clock_.now().since_epoch + reply_delay_, {}};
+      late.bytes.assign(reply.begin(), reply.end());
+      delayed_.push_back(std::move(late));
+    } else {
+      emit_raw(reply);
+    }
+  }
+
+  void release_due_replies() noexcept {
+    while (!delayed_.empty() && delayed_.front().due <= clock_.now().since_epoch) {
+      emit_raw(std::span<const std::uint8_t>{delayed_.front().bytes});
+      delayed_.pop_front();
+    }
   }
 
   /// What a device with the deployment limits says to this command (5.1).
@@ -192,8 +230,16 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
     return pigeon::protocol::to_byte(ResultCode::ACCEPTED);
   }
 
+  struct Delayed {
+    std::chrono::milliseconds due;
+    std::vector<std::uint8_t> bytes;
+  };
+
   ManualClock& clock_;
   pigeon::protocol::MessageFramer framer_;
+  std::deque<Delayed> delayed_;
+  std::chrono::milliseconds reply_delay_{0};
+  bool one_byte_reads_{false};
   std::deque<std::uint8_t> outbox_;
   std::vector<Command> commands_;
   std::size_t write_calls_{0};
