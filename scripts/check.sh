@@ -181,8 +181,18 @@ fi
 # results." Asserting that in prose proves nothing; running it does.
 if [[ "$SKIP_DETERMINISM" == "0" && "$SKIP_TESTS" == "0" ]]; then
   step "Checking test determinism (shuffled and repeated)"
-  ctest --preset "$PRESET" --schedule-random --repeat until-fail:2 > /dev/null \
-    || fail "tests are not deterministic under shuffling or repetition (REQ-DEV-002)"
+  # The output is kept, not discarded, and shown only if the step fails: with it
+  # discarded a failure named no test, and a flake could not be told from a real
+  # order dependence. A passing step stays as quiet as it was.
+  determinism_log="$(mktemp)"
+  if ! ctest --preset "$PRESET" --schedule-random --repeat until-fail:2 \
+    --output-on-failure > "$determinism_log" 2>&1; then
+    # The failure is at the end: until-fail stops at the first failing pass.
+    tail -n 120 "$determinism_log"
+    rm -f "$determinism_log"
+    fail "tests are not deterministic under shuffling or repetition (REQ-DEV-002)"
+  fi
+  rm -f "$determinism_log"
   ok "suite is order-independent and repeatable"
 else
   warn "determinism check skipped"

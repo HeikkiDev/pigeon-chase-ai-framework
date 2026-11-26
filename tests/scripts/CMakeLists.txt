@@ -13,6 +13,7 @@ set(pigeon_gate_tests
   tdd_check_test.sh
   header_check_test.sh
   check_tidy_test.sh
+  check_determinism_test.sh
   support_test.sh
 )
 

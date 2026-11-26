@@ -142,7 +142,21 @@ Each is its own change, test-first:
    to the module, and the tests run clean under the sanitizers.
 2. **The host link** (`raspberry/`): a `SerialActuatorLink` over an abstract
    byte stream, tested against a simulated device, with `health()` derived as
-   in the specification.
+   in the specification. *Done:* `raspberry/link/`, built on every machine
+   (it needs no ncnn). It is poll-driven and not thread-safe, with an injected
+   line (`ByteStream`) and clock: the owner calls `poll()` at least every reader
+   period and serialises access. Whether a reader thread does that, and how it is
+   locked, is decided with the serial port (follow-up 3). The link's own waits are
+   taken in slices of at most the reader period so that the stall rule of section 7
+   never mistakes them for a stall.
+   Choices the specification left open: `start_up()` takes its give-up time from
+   the caller; a value that cannot be put on the wire (not a number, beyond the
+   16-bit range, a negative duration) is sent as one the device refuses, never
+   clamped into one it would obey; and the destructor sends `SAFE_STATE`
+   whenever the line is open, even if the device was never heard, which section 6.1
+   requires (`SAFE_STATE` is attempted whenever the line is open) and which is
+   consistent with section 8's "nothing is sent" only if that is read as
+   *during startup*.
 3. **The serial port and a hardware test**, kept out of the default suite
    (`REQ-DEV-003`).
 4. **The firmware** (`arduino/`): needs the board named and a toolchain
@@ -152,8 +166,9 @@ Each is its own change, test-first:
 
 * The vectors in `docs/architecture/device-protocol.md` are tests in
   `tests/protocol/`, so `REQ-COM-001` is reported as cited by
-  `scripts/trace.sh`. The host link and the firmware are not built, and the
-  requirement's note says so.
+  `scripts/trace.sh`. The host link is tested against a simulated device
+  (`tests/raspberry/link/`); the serial port and the firmware are not built,
+  and the requirement's note says so.
 * `scripts/arch-check.sh` holds `protocol/` to this ADR mechanically: only the
   allowlisted freestanding headers, no hardware or platform header, no I/O, no
   clock, no allocation, exceptions, virtual functions or RTTI, and no dependence
