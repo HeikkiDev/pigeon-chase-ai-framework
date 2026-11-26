@@ -93,7 +93,10 @@ SerialPortStream::SerialPortStream(const std::string& path, SerialSettings setti
   // control, and the receiver on and modem lines ignored.
   ::cfmakeraw(&tty);
   tty.c_cflag |= static_cast<tcflag_t>(CLOCAL | CREAD);
-  tty.c_cflag &= static_cast<tcflag_t>(~(CSTOPB | CRTSCTS));
+  // Converted to the unsigned flag type before it is negated: on macOS these are
+  // plain ints, and a bitwise NOT of a signed value is what clang-tidy rejects.
+  const auto unwanted = static_cast<tcflag_t>(CSTOPB | CRTSCTS);
+  tty.c_cflag &= ~unwanted;
   // A read returns what has arrived and, with the descriptor non-blocking, reports
   // "nothing yet" as EAGAIN. That leaves a read of zero bytes to mean one thing
   // only: the other end has gone.
