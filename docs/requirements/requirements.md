@@ -535,15 +535,16 @@ key/value format needs no third-party parser, which matters on a 1 GB target.
   distinguishes acceptance from refusal, and the device emits a periodic
   heartbeat so that silence is detectable as a fault (`REQ-COM-003`).
 
-**Blocked on work not yet done.** The protocol has not been designed. `core/`
-deliberately models the device boundary as *operations* — `ActuatorLink` — and
-not as an encoding (ADR-0007), so there is nothing in `core/` a test could
-assert against without inventing an API. This requirement will therefore be
-reported `UNVERIFIED` by `scripts/trace.sh` until the wire protocol is
-specified in `docs/architecture/` and implemented in `raspberry/` and
-`arduino/`. That is outstanding work with a known owner, not a missing test:
-recorded here so the permanent `UNVERIFIED` line is explained rather than
-mysterious.
+**Blocked on work not yet done.** The protocol is now specified
+(`docs/architecture/device-protocol.md`, ADR-0021) but not yet implemented.
+`core/` deliberately models the device boundary as *operations* —
+`ActuatorLink` — and not as an encoding (ADR-0007), so there is nothing in
+`core/` a test could assert against without inventing an API. This requirement
+will therefore be reported `UNVERIFIED` by `scripts/trace.sh` until the wire
+protocol is implemented in `raspberry/` and `arduino/` and its codec is tested
+against the specification's vectors. That is outstanding work with a known
+owner, not a missing test: recorded here so the permanent `UNVERIFIED` line is
+explained rather than mysterious.
 
 ### REQ-COM-002 — Fail-safe on communication loss
 
@@ -883,6 +884,10 @@ is a reference. Defaults are the values the system ships with.
 | Camera capture resolution  | 640 × 480      | `REQ-DET-004` (Q24) |
 | Frame pixel format         | RGB888, not configurable | `REQ-DET-004` |
 | Track retention            | none; discarded on a missed frame | `REQ-TRK-009` |
+| Device heartbeat interval  | 500 ms         | `REQ-COM-001` (ADR-0021) |
+| Link silence timeout       | 1.5 s          | `REQ-COM-001`, `REQ-COM-003` (ADR-0021) |
+| Command reply timeout      | 100 ms         | `REQ-COM-001` (ADR-0021) |
+| Serial line setting        | 115200 baud, 8N1 | deployment setting of the transport, not of the protocol (ADR-0021) |
 
 *uncalibrated* means the value is a property of the physical rig and is
 recorded during bring-up. Until then the empty default envelope prevents
@@ -911,12 +916,12 @@ than a new obligation on `core/`.
 Unresolved specification gaps. **Agents must not invent answers to these** —
 raise them with the maintainer.
 
-*None outstanding.* Every question raised so far has been resolved; see below.
-Add new rows here rather than guessing.
+One question is outstanding; every other raised so far has been resolved, see
+below. Add new rows here rather than guessing.
 
 | #  | Question | Blocks |
 | -- | -------- | ------ |
-| —  | —        | —      |
+| Q26 | When the Arduino receives an aiming command with an angle outside its own envelope, does it **refuse** it (reply `REJECTED_ANGLE`, servos do not move) or **clamp** it and move to the clamped angle? `actuator_link.hpp` says "the receiver clamps them again", while `LinkStatus::REJECTED` is documented as angles outside the device's envelope. The protocol specification assumes **refuse**, because it fails closed and gives `REJECTED` a cause that can occur; the maintainer is asked to confirm. | Firmware behaviour; reconciling the `actuator_link.hpp` comment (ADR-0021 follow-up 2). Does not block the codec. |
 
 ### Resolved
 

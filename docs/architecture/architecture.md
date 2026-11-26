@@ -40,7 +40,7 @@ It will be responsible for low-level physical control:
 * Positioning the deterrent according to the requested angles.
 * Controlling the water actuator.
 
-The communication protocol between the Raspberry Pi and Arduino is a defined system boundary and should be documented separately.
+The communication protocol between the Raspberry Pi and Arduino is a defined system boundary, specified in [`device-protocol.md`](device-protocol.md) (`REQ-COM-001`, ADR-0021).
 
 ## Detection and Confirmation
 
@@ -275,12 +275,13 @@ is answered entirely on the commanding side; the firmware keeps that picture
 current by replying to every command and emitting a periodic heartbeat, so a
 fault is visible without a fire command being sent to discover it
 (`REQ-COM-003`). Its wire
-encoding — framing, checksums, replies — is still to be specified in this
-directory (`REQ-COM-001`), and the interface deliberately says nothing about
-it. Because no seam in `core/` represents the encoding, `REQ-COM-001` has
-nothing to test against and stays `UNVERIFIED` until that protocol is
-designed; the requirement now records this explicitly so its status is
-explained rather than mysterious.
+encoding — framing, checksums, replies — is specified in
+[`device-protocol.md`](device-protocol.md) (`REQ-COM-001`), and the interface
+deliberately says nothing about it. Because no seam in `core/` represents the
+encoding, `REQ-COM-001` has nothing in `core/` to test against and stays
+`UNVERIFIED` until the codec and both ends of the line are built (ADR-0021);
+the requirement records this explicitly so its status is explained rather than
+mysterious.
 
 ## Development Principles
 
