@@ -33,6 +33,15 @@ using pigeon::test_support::ManualClock;
 using pigeon::test_support::SimulatedDevice;
 using std::chrono::milliseconds;
 
+/// A thread is stuck, and nothing can be undone from here: it holds the lock, and
+/// tearing down the fixture would send SAFE_STATE and block on the same lock. So
+/// report and end the process now; a hang would hide the failure.
+[[noreturn]] void abandon(const char* why) {
+  std::fprintf(stderr, "FAILED: %s\n", why);
+  std::fflush(stderr);
+  std::_Exit(1);
+}
+
 class Concurrent : public ::testing::Test {
  protected:
   ManualClock clock;
@@ -92,34 +101,42 @@ TEST_F(Concurrent, StartUpIsForwardedAndItsOutcomePublished) {
 
 TEST_F(Concurrent, HealthIsAnsweredWithoutWaitingForAnExchangeInProgress) {
   hear_the_device();
-  std::optional<LinkStatus> asked_mid_exchange;
-  device.on_command([&] { asked_mid_exchange = link.health(); });
 
-  // The exchange runs on another thread and holds the wrapper's lock while the
-  // device's hook asks for health. A health() that took that lock would wait for
-  // ever; the bounded wait below turns that into a failure instead of a hang.
+  // The device holds the exchange open, and with it the wrapper's lock, until the
+  // test lets it go. Meanwhile a different thread asks for health, so no kind of
+  // lock held by the exchange's thread, recursive or not, could let it through.
+  std::promise<void> entered;
+  auto exchange_open = entered.get_future();
+  std::promise<void> release;
+  const std::shared_future<void> let_go = release.get_future().share();
+  device.on_command([&] {
+    entered.set_value();
+    let_go.wait();
+  });
+
   std::promise<LinkStatus> done;
   auto outcome = done.get_future();
   std::thread exchange{[&] { done.set_value(link.send_safe_state_command()); }};
-
-  const bool finished = outcome.wait_for(std::chrono::seconds{5}) == std::future_status::ready;
-  if (!finished) {
-    // Deadlocked, and nothing can be undone from here: the stuck thread holds the
-    // lock, and tearing down the fixture would send SAFE_STATE, run the hook and
-    // block this thread on the same lock. So report and end the process now; a
-    // hang would hide the failure.
-    std::fputs("FAILED: health() waited for the exchange's lock (deadlock)\n", stderr);
-    std::fflush(stderr);
-    std::_Exit(1);
+  if (exchange_open.wait_for(std::chrono::seconds{5}) != std::future_status::ready) {
+    abandon("the exchange never reached the device");
   }
+
+  std::promise<LinkStatus> asked;
+  auto answer = asked.get_future();
+  std::thread asker{[&] { asked.set_value(link.health()); }};
+  if (answer.wait_for(std::chrono::seconds{5}) != std::future_status::ready) {
+    abandon("health() waited for the exchange's lock");
+  }
+  asker.join();
+
+  release.set_value();
   exchange.join();
   // The hook refers to this test's locals, and the fixture's teardown sends
   // SAFE_STATE, which would run it after they are gone.
   device.on_command({});
 
+  EXPECT_EQ(answer.get(), LinkStatus::OK);  // the state from before the exchange
   EXPECT_EQ(outcome.get(), LinkStatus::OK);
-  ASSERT_TRUE(asked_mid_exchange.has_value());
-  EXPECT_EQ(*asked_mid_exchange, LinkStatus::OK);  // the state from before the exchange
 }
 
 TEST(ConcurrentShutdown, DestroyingTheWrapperPutsTheActuatorInItsSafeState) {
