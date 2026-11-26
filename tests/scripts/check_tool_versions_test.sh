@@ -62,12 +62,17 @@ if [[ "\${1:-}" == "--version" ]]; then
 fi
 exit 0
 EOF2
+  # Like the real tool, it keeps writing after the line that holds the version. The
+  # pause makes sure a reader that stops at the first match has already gone, so
+  # that a later write meets a closed pipe on every machine, not only a slow one.
   write_file "$dir/bin/clang-tidy" <<EOF2
 #!/usr/bin/env bash
 if [[ "\${1:-}" == "--version" ]]; then
   echo "LLVM (http://llvm.org/):"
   echo "  LLVM version $tidy_version"
+  sleep 0.3
   echo "  Optimized build."
+  echo "  Default target: x86_64-pc-linux-gnu"
 fi
 exit 0
 EOF2
