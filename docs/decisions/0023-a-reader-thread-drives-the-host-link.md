@@ -53,10 +53,11 @@ snapshot packing, the shared health rule and the wrapper's single-poll operation
 tested deterministically against the simulated device, with no thread. The runner is
 tested only for what holds whatever the machine's load: it calls its function, and
 stopping it joins. Bounds exist only to stop a failing test from hanging
-(`REQ-DEV-002`). That `health()` takes no lock is tested by calling it from inside an
-exchange that runs on a helper thread, while the wrapper holds its mutex: a
-`health()` that locked would deadlock, and a bounded wait on the main thread turns
-that into a failure, ending the process because a deadlock cannot be undone.
+(`REQ-DEV-002`). That `health()` takes no lock is tested by holding an exchange, and with
+it the wrapper's mutex, open from inside the simulated device, while a different
+thread asks for health: any lock in `health()`, recursive or not, makes that thread
+wait, and a bounded wait turns that into a failure, ending the process because a
+stuck thread cannot be undone.
 
 ## Alternatives considered
 
@@ -91,10 +92,17 @@ that into a failure, ending the process because a deadlock cannot be undone.
   the previous state, which is what "answered without an exchange" means.
 * The reader period is real time on the device. It is a parameter (section 9), and
   the first hardware run may move it.
-* The test that `health()` takes no lock relies on a deadlock being caught by a
-  bounded wait and ending the test process, which is a blunt instrument; it is the
+* The test that `health()` takes no lock relies on a stuck thread being caught by
+  a bounded wait and ending the test process, which is a blunt instrument; it is the
   only way to observe a lock that should not be there. Mutating `health()` to take
   the lock makes it fail in 5 s.
+* The lock-free word needs a 64-bit target, or at least armv7 on 32-bit ARM: on
+  armv6 `std::atomic<std::uint64_t>` is not lock-free, and the build stops at the
+  assertion rather than silently taking a lock. The deployment target is 64-bit
+  Raspberry Pi OS on arm64 (Q22, ADR-0019), so this holds.
+* `start_reading` and `stop_reading` are for the one thread that owns the wrapper,
+  and must not be called from the reader's own work; the header says so, and
+  nothing enforces it.
 
 ### Follow-up work
 
@@ -110,12 +118,15 @@ that into a failure, ending the process because a deadlock cannot be undone.
 * Wrapper tests against the simulated device with no thread
   (`tests/raspberry/link/concurrent_actuator_link_test.cpp`): a poll publishes what
   it heard; a command publishes its outcome; silence is judged at the time of the
-  query; `health()` from inside an exchange returns without the lock.
+  query; `health()` asked by a second thread while an exchange holds the lock is
+  answered.
 * Runner tests (`periodic_runner_test.cpp`): it calls its work, stopping joins it
   and is immediate mid-period, with bounds only to stop a failing test from hanging.
 * End to end through a pseudo-terminal with the real clock and the reader thread
   (`concurrent_actuator_link_reader_test.cpp`): a heartbeat makes the link healthy
-  with no caller polling, and shutdown stops the reader and sends `SAFE_STATE`.
+  with no caller polling, and shutdown sends `SAFE_STATE`. That the reader is
+  stopped before that is a matter of member order (the runner is the wrapper's last
+  member, so it is destroyed first), reviewed rather than observed by a test.
 * The suite runs under AddressSanitizer and UBSan in CI. ThreadSanitizer is not in
   CI; the threaded tests were run under it by hand when this was built, and adding
   it to CI is follow-up if the threading grows.

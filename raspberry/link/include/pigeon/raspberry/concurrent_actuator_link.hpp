@@ -45,6 +45,11 @@ class ConcurrentActuatorLink final : public pigeon::core::ActuatorLink {
   void start_reading();
 
   /// Stops the reader thread and waits for it. Harmless if it is not reading.
+  ///
+  /// `start_reading` and `stop_reading` belong to the one thread that owns the
+  /// wrapper: they do not guard against each other. Never call either from inside
+  /// the reader's own work, or from anything it calls such as a device's hook:
+  /// stopping would wait for itself.
   void stop_reading() noexcept;
 
   /// `SerialActuatorLink::start_up`, under the lock, with its outcome published.

@@ -29,6 +29,7 @@ class PeriodicRunner {
   ~PeriodicRunner();
 
   /// Stops the thread and waits for it to finish. Harmless if already stopped.
+  /// Must not be called from the work itself: it would wait for its own thread.
   void stop() noexcept;
 
  private:
