@@ -50,7 +50,13 @@ pigeon_add_test(serial_actuator_link_lost_line_test
   LIBS pigeon::raspberry_link
 )
 
+pigeon_add_test(steady_clock_test
+  SOURCES steady_clock_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
 foreach(target
+    steady_clock_test
     serial_actuator_link_lost_line_test
     serial_port_stream_test
     serial_actuator_link_timing_test
