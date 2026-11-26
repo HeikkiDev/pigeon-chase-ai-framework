@@ -8,9 +8,14 @@ The software is being developed and tested independently of the physical hardwar
 
 ### Raspberry Pi
 
-The Raspberry Pi 3 Model B, with 1 GB of RAM, will be responsible for high-level processing.
+The Raspberry Pi 3 Model B, with 1 GB of RAM, running **64-bit Raspberry Pi OS
+(arm64)**, will be responsible for high-level processing (maintainer ruling,
+2026-10-04, Q22).
 
-A camera connected to the Raspberry Pi will provide image frames to an object detection model running locally on the device.
+A camera connected to the Raspberry Pi will provide image frames to an object
+detection model running locally on the device. The camera delivers **640 × 480**
+RGB888 frames (maintainer ruling, 2026-10-04, Q24); the model's own input size
+is separate and is a property of the model.
 
 The Raspberry Pi will be responsible for:
 
@@ -70,6 +75,37 @@ an exception.
 
 The detection model itself remains an implementation detail and stays
 independent of the camera and hardware interfaces.
+
+### The model runtime
+
+`core/` holds only the `Detector` interface (`detector.hpp`). The real
+implementation is **ncnn running Yolo-Fastest-1.1**, in `raspberry/`, behind
+that interface and invisible from `core/` (ADR-0019). It was chosen because it
+is the only candidate with a published Raspberry Pi 3B figure that clears
+`REQ-DET-003` with a margin — measured on 64-bit Raspberry Pi OS, which is the
+deployment OS (Q22) — it is BSD-3-Clause, its weights are permissively
+licensed and 685 KB on disk, and it pulls in no further dependencies against
+the 1 GB budget.
+
+Three properties of that module are architectural rather than incidental:
+
+* **The ncnn headers appear in exactly one translation unit.** The public
+  header is standard-library only, with the network behind a pimpl, so
+  `tests/` and `core/` never see the runtime. `core/` does not link it.
+* **The model has no `pigeon` class.** The COCO `bird` class is the proxy —
+  accepted by the maintainer, so any bird is a target (Q23) — and the
+  detector's confidence score stops at the module boundary: `Detection`
+  carries a centroid and a box, and nothing else (ADR-0003).
+* **The detector is inert until calibrated.** Its confidence threshold and
+  thread count are data, parsed from the same key/value calibration file as
+  the rest of the rig (`REQ-AIM-003`), and the default threshold is
+  unreachable — an unconfigured detector reports `NONE` for every frame, which
+  is the ADR-0008 pattern applied to detection.
+
+ncnn is probed for at configure time. When it is absent the module and its
+tests are skipped with a warning, so a clean macOS checkout still builds and
+passes (`REQ-DEV-001`); CI sets `PIGEON_STRICT_TOOLS=1`, under which its
+absence is a configure failure, so CI always builds and runs it.
 
 ## Targeting
 
@@ -266,7 +302,7 @@ manual and this document owns the product description.
 | Module       | Responsibility                                                | May depend on          |
 | ------------ | ------------------------------------------------------------- | ---------------------- |
 | `core/`      | Detection contracts, target state machine, targeting maths, command generation | C++ standard library only |
-| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`                |
+| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`, ncnn          |
 | `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries only |
 | `tests/`     | Verification of the above using simulated implementations     | `core/`, GoogleTest    |
 
@@ -285,10 +321,24 @@ All tests must run on macOS without hardware (`REQ-DEV-001`).
 | End-to-end   | Simulated camera → detection → targeting → simulated actuator |
 
 Fixtures must be deterministic: recorded images and scripted scenarios, never
-live captures or unseeded randomness (`REQ-DEV-002`).
+live captures or unseeded randomness (`REQ-DEV-002`). Image fixtures are CC0 or
+public domain only, with their source and licence recorded beside them;
+unlicensed images do not enter the repository, however convenient they are
+(ADR-0019).
+
+Tests that load the real model are **not** hardware-in-the-loop: they open no
+device, read no clock and run in CI. They carry the CTest label `model` so they
+can be selected or excluded, and they assert the detector's contract — total,
+two-valued, deterministic, inert until calibrated — never a particular box
+coordinate, because thread count and bf16 storage change the numerics.
 
 Hardware-in-the-loop testing will be introduced later and must remain separate
-from the default suite and from CI (`REQ-DEV-003`).
+from the default suite and from CI (`REQ-DEV-003`). Detection throughput
+(`REQ-DET-003`) is the first such measurement: a standalone benchmark
+executable in `tools/`, never registered with CTest, run on a real Raspberry Pi
+3B under 64-bit Raspberry Pi OS, replaying 640×480 frames and timing **model
+inference only** (Q21, Q22, Q24), reporting sustained frames per second and
+peak resident set size (ADR-0019).
 
 ## Safety Considerations
 

@@ -11,9 +11,20 @@ set -uo pipefail
 
 : "${PIGEON_REPO_ROOT:?PIGEON_REPO_ROOT must be set by the test harness}"
 
+# A git hook runs with GIT_DIR, GIT_INDEX_FILE and friends exported. Left in
+# place they would point every `git -C <sandbox> ...` below at the real
+# repository, so the sandboxes would read and write its index instead.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR \
+      GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+
 _pass=0
 _fail=0
-_sandboxes=()
+
+# Every sandbox lives under one directory created here, in the test's own
+# shell. new_sandbox() is always called inside $(...), so a list it appended to
+# would vanish with that subshell; the parent directory does not, and the EXIT
+# trap removes it with everything in it.
+_sandbox_root="$(mktemp -d "${TMPDIR:-/tmp}/pigeon-gate-test.XXXXXX")"
 
 _ok() {
   printf '    ok: %s\n' "$1"
@@ -94,8 +105,7 @@ expect_output_not_contains() {
 # single violation it is about.
 new_sandbox() {
   local dir
-  dir="$(mktemp -d "${TMPDIR:-/tmp}/pigeon-gate-test.XXXXXX")"
-  _sandboxes+=("$dir")
+  dir="$(mktemp -d "$_sandbox_root/sandbox.XXXXXX")"
 
   mkdir -p "$dir/core/include/pigeon/core" "$dir/core/src" \
            "$dir/tests/core" "$dir/docs/requirements"
@@ -144,10 +154,9 @@ write_file() {
 }
 
 cleanup_sandboxes() {
-  local dir
-  for dir in ${_sandboxes+"${_sandboxes[@]}"}; do
-    [[ -n "$dir" && -d "$dir" ]] && rm -rf "$dir"
-  done
+  if [[ -n "${_sandbox_root:-}" && -d "$_sandbox_root" ]]; then
+    rm -rf "$_sandbox_root"
+  fi
 }
 
 finish() {

@@ -122,6 +122,44 @@ EOF
 expect_exit 'rejects a camera device path in the default test suite' 1 \
   "$ARCH_CHECK" --root "$sandbox"
 
+# ------------------------------------- model runtime stays in raspberry/ (ADR-0019) --
+# ADR-0019 §2 confines ncnn to one translation unit in raspberry/src/. core/
+# must not see the runtime (REQ-DET-002), and the tests reach the detector only
+# through its standard-library-only public header, so neither may include it.
+for dir in 'core/src' 'core/include/pigeon/core' 'tests/raspberry' 'tests/core'; do
+  sandbox="$(new_sandbox)"
+  write_file "$sandbox/${dir}/offender.cpp" <<'EOF'
+#include <ncnn/net.h>
+EOF
+  expect_exit "rejects <ncnn/net.h> in ${dir}/" 1 "$ARCH_CHECK" --root "$sandbox"
+done
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/core/include/pigeon/core/offender.hpp" <<'EOF'
+#pragma once
+#include "ncnn/mat.h"
+EOF
+expect_exit 'rejects a quoted ncnn include in a core/ header' 1 "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/tests/raspberry/offender_test.cpp" <<'EOF'
+// Verifies: REQ-EXA-001
+#include <ncnn/net.h>
+EOF
+expect_output_contains 'names the offending file for an ncnn include' 'tests/raspberry/offender_test.cpp' \
+  "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/raspberry/src/ncnn_detector.cpp" <<'EOF'
+#include <ncnn/net.h>
+EOF
+write_file "$sandbox/tests/raspberry/detector_test.cpp" <<'EOF'
+// Verifies: REQ-EXA-001
+// The detector hides <ncnn/net.h> behind a pimpl; mentioning it is not including it.
+EOF
+expect_exit 'permits ncnn in raspberry/ and a mention of it in a test comment' 0 \
+  "$ARCH_CHECK" --root "$sandbox"
+
 # --------------------------------------------------- hardware layers stay legal --
 sandbox="$(new_sandbox)"
 write_file "$sandbox/raspberry/camera.cpp" <<'EOF'

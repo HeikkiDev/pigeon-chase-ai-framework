@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pi 3B verification — REQ-DET-003</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #222; }
+  h1 { font-size: 1.6rem; }
+  h2 { font-size: 1.15rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
+  pre { background: #f4f4f4; padding: .8rem; border-radius: 6px; overflow-x: auto; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .9rem; }
+  .goal { background: #eef6ff; border-left: 4px solid #3b82f6; padding: .6rem 1rem; }
+  .pass { color: #15803d; font-weight: bold; }
+  .fail { color: #b91c1c; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Raspberry Pi 3B verification — REQ-DET-003</h1>
+<p class="goal">
+  <strong>Goal:</strong> on a Pi 3B (1 GB, 64-bit Raspberry Pi OS) the detection model
+  must run at <strong>&ge; 5 FPS</strong>, inference only, on 640&times;480 frames.
+  No camera needed: the benchmark replays a recorded frame from disk.
+  Branch: <code>real-detector</code> (pushed, PR not opened yet).
+</p>
+
+<h2>1. Prepare the Pi</h2>
+<p>Flash <strong>64-bit</strong> Raspberry Pi OS Lite. Confirm <code>uname -m</code> prints <code>aarch64</code>.</p>
+<pre><code>sudo apt update
+sudo apt install git cmake ninja-build g++ libomp-dev</code></pre>
+
+<h2>2. Build ncnn from source</h2>
+<pre><code>git clone --depth 1 https://github.com/Tencent/ncnn.git &amp;&amp; cd ncnn
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNCNN_VULKAN=OFF \
+  -DNCNN_BUILD_TOOLS=OFF -DNCNN_BUILD_EXAMPLES=OFF -DNCNN_BUILD_BENCHMARK=OFF \
+  -DCMAKE_INSTALL_PREFIX=/usr/local
+ninja -C build -j2 &amp;&amp; sudo ninja -C build install
+cd ..</code></pre>
+<p><code>-j2</code> avoids running out of the 1 GB of RAM.</p>
+
+<h2>3. Build the benchmark</h2>
+<p>The CMake presets are macOS-only, so call CMake directly.</p>
+<pre><code>git clone -b real-detector https://github.com/HeikkiDev/pigeon-chase-ai-framework.git
+cd pigeon-chase-ai-framework
+cmake -S . -B build/pi -G Ninja -DCMAKE_BUILD_TYPE=Release
+ninja -C build/pi -j2 pigeon_detector_benchmark</code></pre>
+
+<h2>4. Run it</h2>
+<p>Same settings as the upstream 62 ms figure (4 threads, bf16):</p>
+<pre><code>M=raspberry/models/yolo-fastest-1.1
+build/pi/tools/pigeon_detector_benchmark --param $M/yolo-fastest-1.1.param \
+  --weights $M/yolo-fastest-1.1.bin --threads 4 --bf16 --repeats 200 \
+  tests/raspberry/fixtures/pigeon_640x480.ppm</code></pre>
+<p>Then run it once more <strong>without</strong> <code>--bf16</code> for comparison.</p>
+
+<h2>5. Read the result</h2>
+<ul>
+  <li><span class="pass">Pass:</span> the <code>sustained</code> line is &ge; 5 FPS (upstream suggests ~16 FPS).</li>
+  <li>Also note <code>frames FOUND</code>, <code>median inference</code> and <code>peak RSS</code>.</li>
+  <li><span class="fail">Fail:</span> the documented fallback is TFLite, which needs a new ADR.</li>
+</ul>
+<p>For reference, the Mac output looked like this (meaningless for the Pi):</p>
+<pre><code>frames            50 (1 x 50, 640x480 RGB888)
+threads           4
+bf16 storage      off
+threshold         0.55
+frames FOUND      50
+median inference  1.84233 ms
+slowest inference 2.84225 ms
+sustained         502.316 FPS
+peak RSS          32 MiB</code></pre>
+
+<h2>6. Optional: run the test suite on the Pi (ARM64 portability)</h2>
+<pre><code>cmake -S . -B build/pi-test -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPIGEON_BUILD_TESTS=ON
+ninja -C build/pi-test -j2 &amp;&amp; ctest --test-dir build/pi-test</code></pre>
+
+<h2>7. Send back to Copilot</h2>
+<p>Paste the full benchmark output plus:</p>
+<pre><code>cat /etc/os-release
+uname -a
+vcgencmd measure_temp</code></pre>
+<p>Also say how the Pi is powered and cooled (a Pi 3B slows itself down when hot).
+Copilot then records the result in <code>docs/architecture/</code>, updates REQ-DET-003's
+status, and opens the PR.</p>
+</body>
+</html>

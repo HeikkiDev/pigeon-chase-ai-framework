@@ -231,7 +231,26 @@ if [[ "$SKIP_TIDY" == "0" ]]; then
       fail "compile_commands.json missing in $BUILD_DIR"
     fi
     read_into_array < <(project_sources | grep -E '\.(cpp|cc)$' | grep -v '^tests/' || true)
-    tidy_files=("${read_result[@]:-}")
+    candidate_files=("${read_result[@]:-}")
+
+    # Analyse only what this configuration compiled. A module whose optional
+    # dependency is absent (raspberry/ and tools/ without ncnn, ADR-0019 §7) has
+    # no compile command, so clang-tidy would guess its flags and fail on
+    # headers it was never told about. PIGEON_STRICT_TOOLS=1 makes the
+    # dependency mandatory, so in CI nothing is ever skipped here.
+    tidy_files=()
+    skipped_files=()
+    for file in "${candidate_files[@]}"; do
+      [[ -z "$file" ]] && continue
+      if grep -qF "\"$REPO_ROOT/$file\"" "$BUILD_DIR/compile_commands.json"; then
+        tidy_files+=("$file")
+      else
+        skipped_files+=("$file")
+      fi
+    done
+    if [[ -n "${skipped_files[0]:-}" ]]; then
+      warn "${#skipped_files[@]} file(s) not in this build, not analysed: ${skipped_files[*]}"
+    fi
 
     # Homebrew/pip builds of clang-tidy do not know where the macOS SDK is, so
     # the standard library headers are invisible unless we point at it.
