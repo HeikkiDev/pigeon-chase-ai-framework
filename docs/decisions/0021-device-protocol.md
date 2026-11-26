@@ -53,8 +53,9 @@ test vectors.
 (three intervals); a command's reply must arrive within **100 ms** or the
 exchange is a `TRANSPORT_FAILURE`. `health()` is derived from received
 messages and the injected clock alone, so it transmits nothing
-(`REQ-COM-003`). These numbers are the architect's recommendation, adopted by
-the maintainer on 2026-11-26; the requirements fix no value for any of them.
+(`REQ-COM-003`). These numbers are the architect's recommendation, adopted on
+the maintainer's delegation of 2026-11-26; the requirements fix no value for
+any of them.
 
 **D3 — One shared codec, in a new `protocol/` module.** The encoding and
 decoding live once, in a header-only module used by both `raspberry/` and
@@ -125,8 +126,9 @@ the specification answers provisionally, is the other open item.
   receiver clamps them again"), and is recorded as open question Q26.
 * A shared module constrains the C++ that `protocol/` may use, and the
   firmware toolchain has not been chosen.
-* Health can read `OK` for up to 1.5 s after the device stops, because the
-  silence timeout tolerates two lost heartbeats. A dead device fires nothing and
+* Health can read `OK` for up to about 1.7 s after the device stops: the 1.5 s
+  silence timeout tolerates two lost heartbeats, and the host's reader adds up
+  to 200 ms. A dead device fires nothing and
   a command sent into it faults, so nothing unsafe results, but the window is
   real and the timeout is a parameter.
 

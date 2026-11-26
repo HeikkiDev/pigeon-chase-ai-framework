@@ -169,7 +169,8 @@ uncalibrated rig inert (`REQ-AIM-002`, `REQ-SAF-004`).
 out-of-range angle is refused (`REJECTED_ANGLE`) and the servos **do not move**.
 Failing closed is chosen over clamping and moving; the requirements document
 asks the maintainer to confirm it. `ACCEPTED` means the device has begun to
-move, not that it has arrived. `FIRE` does not wait for the servos to settle:
+move, not that it has arrived. An `AIM` is judged on its angles alone, so it is
+accepted during a burst or a cool-down. `FIRE` does not wait for the servos to settle:
 the aiming command is sent on an earlier camera frame than the fire command, by
 design of the engagement.
 
@@ -223,9 +224,9 @@ reply arrives or the reply timeout passes.
 * The host picks `seq` for each command, incrementing by one and wrapping.
 * A reply answers the outstanding command if and only if its `seq` **and**
   `command_type` match. Any other reply — late, duplicated, or for a command
-  already given up on — is **ignored entirely**: it ends no exchange, records no
-  fault or rejection, and clears nothing. It is a valid device message, so it
-  still counts as liveness (section 7).
+  already given up on — is **unmatched**: it ends no exchange, records no fault
+  or rejection, and clears nothing. It is a valid device message, so it still
+  counts as liveness (section 7).
 * If no matching reply arrives within the **reply timeout** (100 ms), the
   exchange has faulted.
 * **The host SHALL NOT retransmit a command.** A retransmitted `FIRE` whose
@@ -267,18 +268,20 @@ without a fire command being sent to refresh it (`REQ-COM-001`,
 `REQ-COM-003`).
 
 **Liveness** is the time at which the host last *read a valid device message
-from the line*: a heartbeat, a matching reply, or a reply it ignores (section
+from the line*: a heartbeat, a matching reply, or an unmatched reply (section
 6). The **link silence timeout** is **1.5 s**, three heartbeat intervals, so one
 or two lost heartbeats do not declare the link down and three do. It is judged
 by the elapsed-time convention of ADR-0014: silence has lasted the timeout when
 `elapsed >= 1.5 s`. Time comes from the injected `MonotonicClock`
 (`REQ-DEV-002`), never from the wall clock.
 
-The host's reader SHALL run at least once per heartbeat interval and stamp each
-message when it takes it off the line. A reader that finds it has not run for
-the silence timeout or longer SHALL discard what the line buffered meanwhile and
-treat the stall as silence: a backlog of old heartbeats must not make a stalled
-host look healthy.
+The host's reader SHALL take bytes off the line at least every **100 ms** (it
+has to, to see a reply inside the reply timeout) and stamp each valid message
+with the time it took it. A reader that finds more than **200 ms** has passed
+since it last ran SHALL discard whatever the line buffered meanwhile instead of
+stamping it: a backlog of old heartbeats must not make a stalled host look
+healthy. The cost is bounded and fails safe: a discarded reply times out and
+faults, and a discarded heartbeat is one the next replaces.
 
 The host keeps two further pieces of state, both set only by exchanges:
 
@@ -308,14 +311,22 @@ Consequences worth stating:
   about the device until it has been heard. A host cannot fire into silence.
 * A corrupted heartbeat is simply not counted. A corrupted reply is a lost
   reply: its exchange times out and faults.
-* The recovery from `TRANSPORT_FAILURE` or `REJECTED` is an exchange the device
-  accepts. Every engagement begins with an `AIM` before any `FIRE`, so the
-  exchange that precedes a fire decision is the one that clears or confirms
-  the state it is decided on.
-* **Health can read `OK` for up to 1.5 s after the device stops.** That is the
-  price of tolerating two lost heartbeats, and it is a parameter. It harms
-  nothing: a device that has stopped fires nothing, and a command sent into it
-  times out and faults.
+* `faulted` and `rejected` are cleared differently on purpose. `faulted` means
+  "commands are not being answered", and any answer, including to `SAFE_STATE`,
+  disproves it. `rejected` means "the device refuses what it is asked to do",
+  and `SAFE_STATE`, which a working device never refuses, cannot disprove that.
+* An `AIM` is exchanged before any `FIRE`, so on a real link the exchange that
+  precedes a fire decision has just cleared or confirmed these two flags. What
+  most often refuses a burst on a real link is therefore `UNAVAILABLE`;
+  `TRANSPORT_FAILURE` and `REJECTED` are mostly seen between an exchange and the
+  next, and are reached at the decision through simulated links, as
+  `REQ-SAF-008` and `REQ-COM-003` test them. That is inherent in sending the aim
+  first, not a gap.
+* **Health can read `OK` for up to about 1.7 s after the device stops**: the
+  silence timeout, plus at most 200 ms of reader latency, plus a few
+  milliseconds of serial buffering. That is the price of tolerating two lost
+  heartbeats, and it is a parameter. It harms nothing: a device that has
+  stopped fires nothing, and a command sent into it times out and faults.
 * The `actuator_active` heartbeat flag is for the host's diagnostics and its
   logs. It does not enter `health()`.
 
@@ -326,8 +337,14 @@ is the implementation's business, not the protocol's.
 ## 8. Sequences
 
 **Startup.** The device powers up with the actuator inactive and begins
-heartbeating. The host opens the line (health `UNAVAILABLE`), sends
-`SAFE_STATE`, and health becomes `OK` on the first valid device message.
+heartbeating. The host opens the line (health `UNAVAILABLE`) and waits for the
+first valid device message: a board that resets when the port opens is not
+listening yet, and a command sent then would fault. Once it has heard the
+device, the host calls `send_safe_state_command` and repeats it, as a new
+command with a new `seq` each time, once per heartbeat interval until one is
+accepted. Health is `OK` from that exchange. If no heartbeat ever arrives, health
+stays `UNAVAILABLE` and nothing is sent; the device is safe regardless
+(`REQ-SAF-004`).
 
 **An engagement.** `AIM` (reply `ACCEPTED`) for each aiming frame; then, at the
 firing frame, `health()` is consulted and, if `OK`, `FIRE` is sent
@@ -348,6 +365,7 @@ valve.
 | Device heartbeat interval   | 500 ms   | Device-side timer.                                          |
 | Link silence timeout        | 1.5 s    | Host-side; three heartbeat intervals.                       |
 | Reply timeout               | 100 ms   | Host-side. Under one camera frame period at 5 FPS (`REQ-DET-003`). |
+| Host reader period          | ≤ 100 ms | Stall bound 200 ms: later input is discarded, not stamped (section 7). |
 | Receive bound               | 16 bytes | Before the delimiter; more is discarded to the next delimiter. |
 | Serial line setting         | 115200 8N1 | Deployment setting of the transport, not of the protocol. |
 
