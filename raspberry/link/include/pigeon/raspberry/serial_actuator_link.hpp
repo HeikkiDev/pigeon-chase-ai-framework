@@ -58,6 +58,14 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
   /// line is closed by whoever owns the `ByteStream`, after the link is gone.
   ~SerialActuatorLink() override;
 
+  // Not copyable or movable, like the interface: it holds references to the line
+  // and the clock, and is the one thing that may put the actuator in its safe
+  // state when it goes away.
+  SerialActuatorLink(const SerialActuatorLink&) = delete;
+  SerialActuatorLink& operator=(const SerialActuatorLink&) = delete;
+  SerialActuatorLink(SerialActuatorLink&&) = delete;
+  SerialActuatorLink& operator=(SerialActuatorLink&&) = delete;
+
   /// Brings the link up (section 8, startup): waits to hear the device, because a
   /// board that has just reset is not listening, then sends `SAFE_STATE` and
   /// repeats it once per heartbeat interval, each time as a new command, until
