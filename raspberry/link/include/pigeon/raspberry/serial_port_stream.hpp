@@ -32,8 +32,9 @@ struct SerialSettings {
 /// control, because the protocol is binary and `0x00` is its delimiter.
 ///
 /// It is opened by the constructor. If that fails, `is_open()` is false and
-/// `open_error()` holds the `errno` (`ENOENT` for no such path, `ENOTTY` for
-/// something that is not a terminal, `EINVAL` for a line speed it does not know).
+/// `open_error()` holds the `errno` (`ENOENT` for no such path, `ENOTTY` (`ENODEV`
+/// on macOS) for something that is not a terminal, `EINVAL` for a line speed it
+/// does not know).
 /// A port that is lost later (the cable pulled, the adapter gone) stops being
 /// open, so that `ActuatorLink::health()` reads `UNAVAILABLE` (`REQ-COM-002`).
 ///
