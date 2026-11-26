@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace pigeon::raspberry {
 
@@ -50,10 +51,11 @@ std::uint64_t pack(const LinkHealthState& state) noexcept {
     word |= rejected_bit;
   }
   if (state.last_heard.has_value()) {
+    // A time that cannot be packed as it is, before the epoch or too late for 60
+    // bits, is kept as never heard: that reads UNAVAILABLE whatever the clock says.
     const auto count = state.last_heard->count();
-    const std::uint64_t time = count < 0 ? 0 : static_cast<std::uint64_t>(count);
-    if (time <= latest_time) {  // too late to fit: kept as never heard
-      word |= heard_bit | (time << time_shift);
+    if (count >= 0 && std::cmp_less_equal(count, latest_time)) {
+      word |= heard_bit | (static_cast<std::uint64_t>(count) << time_shift);
     }
   }
   return word;

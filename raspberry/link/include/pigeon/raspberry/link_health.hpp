@@ -32,9 +32,9 @@ struct LinkHealthState {
 /// The state in one word, so that a reader on another thread takes it whole from
 /// a `std::atomic<std::uint64_t>`, which is lock-free (ADR-0023).
 ///
-/// The time is kept to 60 bits of milliseconds. One before the epoch is kept as the
-/// epoch, which only makes the silence look longer; one too late to fit is kept as
-/// never heard. Either way the snapshot errs towards `UNAVAILABLE`, never `OK`.
+/// The time is kept to 60 bits of milliseconds. One that does not fit, before the
+/// epoch or too late, is kept as never heard, which reads `UNAVAILABLE` whatever
+/// the clock says: the snapshot errs towards `UNAVAILABLE`, never towards `OK`.
 [[nodiscard]] std::uint64_t pack(const LinkHealthState& state) noexcept;
 
 /// The inverse of `pack`.
