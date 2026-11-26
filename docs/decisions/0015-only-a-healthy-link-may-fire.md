@@ -81,8 +81,11 @@ mechanisms keep a future `LinkStatus` value from slipping through:
 ### Negative / accepted trade-offs
 
 * An implementer who writes `default:` in `refusal_for` defeats the `-Wswitch`
-  mechanism, and only the `static_assert` and a reviewer remain. The header
-  says so explicitly rather than pretending the guarantee is absolute.
+  mechanism. `scripts/arch-check.sh` rejects that label (defect D3, `0bd24eb`),
+  but the check is textual, so a refactor that moves the mapping out of
+  `refusal_for` escapes it and leaves only the `static_assert` and a reviewer.
+  The header says so explicitly rather than pretending the guarantee is
+  absolute.
 * The `static_assert` pins enumerator *values*, so appending a status at the
   end leaves it satisfied; that case is caught by `-Wswitch` instead. The two
   mechanisms cover each other's gap, and neither covers it alone.
