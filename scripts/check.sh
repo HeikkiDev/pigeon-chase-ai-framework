@@ -114,8 +114,16 @@ check_tool_version() {
   [[ -n "$want" ]] || return 0
 
   # Whatever precedes "version" differs (Homebrew, Ubuntu, "LLVM"); the number
-  # after it is what is being compared.
-  have="$("$path" --version 2>&1 | grep -m1 -o 'version [0-9][0-9.]*' | awk '{print $2}')"
+  # after it is what is being compared. The tool's whole output is read before it is
+  # searched, and the search reads all of it: a reader that leaves at the first match
+  # closes the pipe on a tool that is still writing, which dies of SIGPIPE, and under
+  # pipefail that ended the whole gate with exit 141.
+  have="$("$path" --version 2>&1 || true)"
+  have="$(awk '
+    !found && match($0, /version [0-9][0-9.]*/) {
+      print substr($0, RSTART + 8, RLENGTH - 8)
+      found = 1
+    }' <<< "$have")"
   if [[ "$have" != "$want" ]]; then
     message="$name is ${have:-of an unknown version} but this repository pins $want (scripts/lint-tools.txt). Install it with: pip install -r scripts/lint-tools.txt"
     if [[ "$STRICT_TOOLS" == "1" ]]; then
