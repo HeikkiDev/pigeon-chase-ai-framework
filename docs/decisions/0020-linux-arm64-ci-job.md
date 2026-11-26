@@ -1,9 +1,9 @@
 # ADR-0020 — CI also runs the gate on 64-bit Linux (arm64)
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-26
-**Affects:** `.github/workflows/ci.yml`; `REQ-DEV-001`, `REQ-DET-003`
-(deployment platform); ADR-0002, ADR-0017, ADR-0019
+**Affects:** `.github/workflows/ci.yml`; ADR-0002, ADR-0017, ADR-0019.
+Infrastructure only: no requirement is added or changed.
 
 ## Context
 
@@ -46,9 +46,11 @@ GitHub's hosted `ubuntu-24.04-arm` runner and executes exactly what the macOS
 
 * **Compiler:** the runner's default GCC (13 on Ubuntu 24.04), since that is
   the compiler family of the deployment OS.
-* **ncnn:** built from source at the tag ADR-0019 uses (`20260526`), Vulkan,
-  tools, examples, benchmarks and Python bindings off, installed to a prefix
-  that is cached by tag. A cache hit skips the build.
+* **ncnn:** built from source at the tag ADR-0019 uses (`20260526`) as a
+  static library, with Vulkan, tools, examples, benchmarks and Python bindings
+  off. It is installed to a prefix outside the checkout (so the gate never
+  treats its headers as project sources), cached by tag and architecture, and
+  found through `CMAKE_PREFIX_PATH`. A cache hit skips the build.
 * **clang-format / clang-tidy:** installed from PyPI (`clang-format`,
   `clang-tidy` wheels) into a venv put first on `PATH`. They are not pinned,
   matching the unpinned Homebrew `llvm` on the macOS job (ADR-0017); the gate
@@ -59,12 +61,17 @@ GitHub's hosted `ubuntu-24.04-arm` runner and executes exactly what the macOS
 
 The macOS jobs are unchanged.
 
+**Requirements.** This is labelled infrastructure. `REQ-DEV-001` still promises
+a passing gate on macOS only; no Linux requirement is added (maintainer ruling,
+2026-11-26). The job adds checking without adding an obligation to the
+specification.
+
 ## Alternatives considered
 
 | Option | Why it was rejected |
 | ------ | ------------------- |
 | Keep macOS-only CI and rely on manual Linux runs | That is the current practice, and it is how the defects above reached a reviewed branch. |
-| `ubuntu-24.04` (x86_64) runner | Catches GCC and glibc issues but not arm64 ones: ncnn's NEON code paths, `char` signedness, alignment. The arm64 runner is equally free for a public repository and is the deployment architecture. |
+| `ubuntu-24.04` (x86_64) runner | Rejected by the maintainer (2026-11-26) in favour of arm64. Catches GCC and glibc issues but not arm64 ones: ncnn's NEON code paths, `char` signedness, alignment. The arm64 runner is equally free for a public repository and is the deployment architecture. |
 | Cross-compile for arm64 and run tests under QEMU | Slower, more moving parts, and no closer to the target than a native arm64 runner. |
 | Run in a Raspberry Pi OS container image | Closer to the target userland, but adds a container image as a CI dependency for little gain over Ubuntu arm64 + GCC; can be revisited if a Pi-OS-specific defect appears. |
 | Install ncnn from a prebuilt release archive | Avoids the build, but the archives' CMake package and OpenMP linkage differ from a source build, and an unverified binary enters CI. Building from source is ~5 min once, then cached. |
