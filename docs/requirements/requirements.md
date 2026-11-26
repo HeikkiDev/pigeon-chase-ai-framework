@@ -867,6 +867,14 @@ default test suite and from CI.
 * The default `ctest` invocation runs no test that opens a serial port or a
   camera device.
 
+**Note — a pseudo-terminal is not a physical port (maintainer ruling,
+2026-11-26, Q27).** The acceptance criterion is read as "no test that needs
+physical hardware", which is what the statement says. A test may therefore open a
+**pseudo-terminal pair** (a software-only serial line, with no device behind it) to
+exercise the host's serial code on every run on macOS and Linux. A test that opens
+a **physical** port, an adapter or an Arduino remains outside the default suite
+and CI, as does anything that needs a camera.
+
 ---
 
 ## Configured parameters
@@ -944,7 +952,10 @@ library (ADR-0019), and answered by the maintainer directly on 2026-10-04.
 Q25 was raised by the **test-engineer** while encoding ADR-0019 as executable
 tests, and answered by the maintainer on 2026-10-05. Q26 was raised by the
 **architect** while specifying the device protocol (ADR-0021) and answered by
-the maintainer on 2026-11-26.
+the maintainer on 2026-11-26. Q27 was raised by the **implementation-engineer**
+while planning the host's serial port (ADR-0021, follow-up 3), because
+`REQ-DEV-003` said "opens a serial port" and the cheapest honest test of the
+port code is a pseudo-terminal; the maintainer answered on 2026-11-26.
 
 | #  | Question                                          | Resolution                                                                 |
 | -- | ------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -974,6 +985,7 @@ the maintainer on 2026-11-26.
 | Q24 | Camera capture resolution                        | **640 × 480**. Maintainer ruling, 2026-10-04. A deployment value, listed under Configured parameters; distinct from the model's own input size. `REQ-DET-004`, ADR-0019 |
 | Q25 | Inference thread count of zero or less        | **Clamped to one thread.** Maintainer ruling, 2026-10-05: a `num_threads <= 0` in `NcnnDetectorSettings` is treated as 1; it is not a load failure and adds no `ModelLoadStatus`. ADR-0019. |
 | Q26 | What the Arduino does with an aiming command whose angle lies outside its own envelope | **Refuse.** Maintainer ruling, 2026-11-26: it replies `REJECTED_ANGLE` and the servos do not move; it does not clamp and move. Fails closed, and gives `LinkStatus::REJECTED` a cause that can occur. `REQ-AIM-002`, ADR-0021, `device-protocol.md` section 5.1 |
+| Q27 | Whether the default suite may open a pseudo-terminal, given REQ-DEV-003's "opens a serial port" | **Yes.** Maintainer ruling, 2026-11-26: a pseudo-terminal pair is software, not physical hardware, so the host's serial code is tested on every run; the acceptance criterion is read as "no test that needs physical hardware". A physical port, adapter or Arduino stays outside the default suite and CI. `REQ-DEV-003`, ADR-0021 follow-up 3 |
 
 ### Corrections
 
