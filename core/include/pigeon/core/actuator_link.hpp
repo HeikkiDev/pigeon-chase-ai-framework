@@ -62,7 +62,7 @@ enum class LinkStatus : std::uint8_t {
   OK,
   /// The link is not open, or has been lost (`REQ-COM-002`). As health: the
   /// transport is closed, or the device has not been heard from within the
-  /// expected heartbeat interval.
+  /// link silence timeout (`docs/architecture/device-protocol.md`).
   UNAVAILABLE,
   /// The link is open but the exchange failed: a write error, a framing
   /// error, a malformed or absent reply (`REQ-COM-001`). As health: the most
