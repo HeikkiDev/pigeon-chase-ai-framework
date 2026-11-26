@@ -545,12 +545,15 @@ encoding (ADR-0007), so these tests live in `tests/protocol/` and not against
 `core/`. `scripts/trace.sh` therefore reports this requirement as cited.
 
 That is what its acceptance criteria ask, and it is not the whole of the work on
-the device link. Not yet built: the host's use of the codec behind
-`ActuatorLink` (matching replies to commands, deriving `health()` from the
-heartbeat), the serial port, and the firmware that enforces the device's own
-limits (ADR-0021, follow-ups 2 to 4). Those are where `REQ-COM-002`,
-`REQ-COM-003` and the device half of `REQ-AIM-002`, `REQ-SAF-001` and
-`REQ-SAF-005` meet real hardware, and they are tracked there.
+the device link. The host side behind `ActuatorLink` is also built and tested
+against a simulated device that speaks the real codec, with no serial port
+(`SerialActuatorLink` in `raspberry/link/`, ADR-0021 follow-up 2): the exchanges
+and their reply matching, `health()` derived from the heartbeat and from the
+outcome of exchanges, and the startup and shutdown sequences. Not yet built: the
+serial port itself, hardware-in-the-loop tests (`REQ-DEV-003`) and the firmware
+that enforces the device's own limits (ADR-0021, follow-ups 3 and 4). Those are
+where `REQ-COM-002`, `REQ-COM-003` and the device half of `REQ-AIM-002`,
+`REQ-SAF-001` and `REQ-SAF-005` meet real hardware, and they are tracked there.
 
 ### REQ-COM-002 — Fail-safe on communication loss
 

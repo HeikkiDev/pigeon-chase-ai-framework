@@ -1,9 +1,11 @@
 # Device protocol — Raspberry Pi ↔ Arduino (version 1)
 
 **Status:** specified. The codec is implemented and tested in `protocol/`
-(sections 3 to 5 and the vectors of section 10; ADR-0021, follow-up 1). Not yet
-built: the host link behind `ActuatorLink` (sections 6 and 7), the serial port,
-and the firmware (section 5.1); see ADR-0021, follow-ups 2 to 4.
+(sections 3 to 5 and the vectors of section 10; ADR-0021, follow-up 1), and the
+host side behind `ActuatorLink` is implemented and tested against a simulated
+device (sections 6 to 8; `raspberry/link/`, ADR-0021, follow-up 2). Not yet
+built: the serial port and the firmware (section 5.1); see ADR-0021,
+follow-ups 3 and 4.
 **Satisfies:** `REQ-COM-001`. Carries `REQ-COM-002`, `REQ-COM-003`,
 `REQ-AIM-002`, `REQ-SAF-001`, `REQ-SAF-004`, `REQ-SAF-005`, `REQ-SAF-007`.
 **Decided in:** ADR-0021.
