@@ -80,8 +80,10 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
   /// Gives up at `max_wait` after the call. Returns `OK` once a `SAFE_STATE` is
   /// accepted; `UNAVAILABLE` if the line is not open or the device was not heard
   /// within the silence timeout before the deadline, in which case **nothing was
-  /// transmitted by this call**; otherwise the outcome of the last attempt. How long to wait is the
-  /// caller's decision: the specification repeats "until one is accepted" and fixes no limit.
+  /// transmitted by this call**, or if the line was lost after an attempt; otherwise
+  /// the outcome of the last attempt. Every wait stops as soon as the line is lost. How long to
+  /// wait is the caller's decision: the specification repeats "until one is accepted" and fixes no
+  /// limit.
   [[nodiscard]] pigeon::core::LinkStatus start_up(std::chrono::milliseconds max_wait);
 
   [[nodiscard]] pigeon::core::LinkStatus send_aiming_command(

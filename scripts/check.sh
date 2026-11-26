@@ -114,8 +114,16 @@ check_tool_version() {
   [[ -n "$want" ]] || return 0
 
   # Whatever precedes "version" differs (Homebrew, Ubuntu, "LLVM"); the number
-  # after it is what is being compared.
-  have="$("$path" --version 2>&1 | grep -m1 -o 'version [0-9][0-9.]*' | awk '{print $2}')"
+  # after it is what is being compared. The tool's whole output is read before it is
+  # searched, and the search reads all of it: a reader that leaves at the first match
+  # closes the pipe on a tool that is still writing, which dies of SIGPIPE, and under
+  # pipefail that ended the whole gate with exit 141.
+  have="$("$path" --version 2>&1 || true)"
+  have="$(awk '
+    !found && match($0, /version [0-9][0-9.]*/) {
+      print substr($0, RSTART + 8, RLENGTH - 8)
+      found = 1
+    }' <<< "$have")"
   if [[ "$have" != "$want" ]]; then
     message="$name is ${have:-of an unknown version} but this repository pins $want (scripts/lint-tools.txt). Install it with: pip install -r scripts/lint-tools.txt"
     if [[ "$STRICT_TOOLS" == "1" ]]; then
@@ -220,8 +228,14 @@ if [[ "$SKIP_DETERMINISM" == "0" && "$SKIP_TESTS" == "0" ]]; then
   determinism_log="$(mktemp)"
   if ! ctest --preset "$PRESET" --schedule-random --repeat until-fail:2 \
     --output-on-failure > "$determinism_log" 2>&1; then
-    # The failure is at the end: until-fail stops at the first failing pass.
-    tail -n 120 "$determinism_log"
+    # ctest finishes the whole pass, in random order, before it stops, so a failing
+    # test's output can sit anywhere in it with passing tests after it. Show every
+    # failing test's own output (the 60 lines after its ***Failed line), then the
+    # summary that names them, rather than whatever happens to be last.
+    # Either may find nothing (ctest erroring marks no test), and a closed pipe is
+    # not an error, so neither may end the script before it says why it is failing.
+    { grep -A 60 -F '***' "$determinism_log" | head -n 400; } || true
+    sed -n '/^The following tests FAILED/,$p' "$determinism_log" || true
     rm -f "$determinism_log"
     fail "tests are not deterministic under shuffling or repetition (REQ-DEV-002)"
   fi

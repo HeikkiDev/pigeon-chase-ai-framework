@@ -6,12 +6,14 @@
 add_library(pigeon_raspberry_link
   src/public_headers.cpp
   src/serial_actuator_link.cpp
+  src/serial_port_stream.cpp
 )
 
 target_sources(pigeon_raspberry_link
   PRIVATE
     include/pigeon/raspberry/byte_stream.hpp
     include/pigeon/raspberry/serial_actuator_link.hpp
+    include/pigeon/raspberry/serial_port_stream.hpp
 )
 
 add_library(pigeon::raspberry_link ALIAS pigeon_raspberry_link)

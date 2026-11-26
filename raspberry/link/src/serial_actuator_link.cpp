@@ -96,8 +96,8 @@ LinkStatus SerialActuatorLink::start_up(std::chrono::milliseconds max_wait) {
   poll();
   while (!heard_within_silence_timeout()) {
     const auto now = clock_.now().since_epoch;
-    if (now >= deadline) {
-      return LinkStatus::UNAVAILABLE;
+    if (now >= deadline || !line_.is_open()) {
+      return LinkStatus::UNAVAILABLE;  // nothing was sent
     }
     wait_for_line(deadline - now);
     poll();
@@ -106,6 +106,9 @@ LinkStatus SerialActuatorLink::start_up(std::chrono::milliseconds max_wait) {
   for (;;) {
     const auto attempted_at = clock_.now().since_epoch;
     const LinkStatus status = send_safe_state_command();
+    if (status != LinkStatus::OK && !line_.is_open()) {
+      return LinkStatus::UNAVAILABLE;  // the line is gone: no further attempt can be sent
+    }
     const auto next_attempt = attempted_at + timings_.heartbeat_interval;
     if (status == LinkStatus::OK || next_attempt >= deadline) {
       return status;
@@ -115,6 +118,9 @@ LinkStatus SerialActuatorLink::start_up(std::chrono::milliseconds max_wait) {
     for (auto now = clock_.now().since_epoch; now < next_attempt; now = clock_.now().since_epoch) {
       wait_for_line(next_attempt - now);
       poll();
+      if (!line_.is_open()) {
+        return LinkStatus::UNAVAILABLE;
+      }
     }
   }
 }
@@ -182,6 +188,11 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
     }
     if (const auto result = pending_result(); result.has_value()) {
       outcome = status_for(*result);
+      break;
+    }
+    // A line lost after the command went out will carry no reply: the exchange has
+    // faulted, and a closed line is not waited on, so waiting again would only spin.
+    if (!line_.is_open()) {
       break;
     }
     wait_for_line(deadline - now);

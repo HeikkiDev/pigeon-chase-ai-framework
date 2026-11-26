@@ -40,7 +40,19 @@ pigeon_add_test(serial_actuator_link_timing_test
   LIBS pigeon::raspberry_link
 )
 
+pigeon_add_test(serial_port_stream_test
+  SOURCES serial_port_stream_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(serial_actuator_link_lost_line_test
+  SOURCES serial_actuator_link_lost_line_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
 foreach(target
+    serial_actuator_link_lost_line_test
+    serial_port_stream_test
     serial_actuator_link_timing_test
     serial_actuator_link_startup_test
     serial_actuator_link_aim_fire_test

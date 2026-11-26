@@ -84,6 +84,23 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   }
 
   void wait_readable(std::chrono::milliseconds max) noexcept override {
+    if (!open_) {
+      // Like the real port: a line that is not open is not waited on, so no time
+      // passes. Each such wait is counted, because a caller that keeps waiting on
+      // a closed line is spinning. After many, time is let through so that a
+      // spinning caller still ends and the test reports the count, not a hang.
+      ++waits_while_closed_;
+      if (waits_while_closed_ > kSpinEscape) {
+        clock_.advance_by(max);
+      }
+      return;
+    }
+    const auto before = clock_.now().since_epoch;
+    if (close_at_.has_value() && *close_at_ <= before + max) {
+      clock_.advance_by(*close_at_ - before);
+      open_ = false;  // the cable is pulled while the link waits
+      return;
+    }
     trickle_quota_ = 1;
     release_due_replies();
     if (!outbox_.empty()) {
@@ -108,6 +125,11 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   // --- what a test can switch on ------------------------------------------
 
   void close() noexcept { open_ = false; }
+  /// Close the line when the next command arrives, without answering it: the port
+  /// is lost after the command went out and before its reply.
+  void close_on_next_command() noexcept { close_on_next_command_ = true; }
+  /// Close the line at this time on the test's clock, while the link waits.
+  void close_at(std::chrono::milliseconds when) noexcept { close_at_ = when; }
   /// Heartbeat on its own timer from now on, as the real device does from
   /// power-up: the first after one interval, then every interval. They are put on
   /// the line while the link waits (`wait_readable`), which is the only place
@@ -167,6 +189,10 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
 
   // --- what a test can observe --------------------------------------------
 
+  /// How many times the link waited on a line that was not open. Each is a wasted
+  /// turn of a loop that should have stopped.
+  [[nodiscard]] std::size_t waits_while_closed() const noexcept { return waits_while_closed_; }
+
   [[nodiscard]] const std::vector<Command>& commands() const noexcept { return commands_; }
   /// How many times the link called `write`, successful or not.
   [[nodiscard]] std::size_t write_calls() const noexcept { return write_calls_; }
@@ -187,6 +213,11 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
       command.duration_ms = received.fire.duration_ms;
     }
     commands_.push_back(command);
+    if (close_on_next_command_) {
+      close_on_next_command_ = false;
+      open_ = false;
+      return;
+    }
     if (silent_for_ > 0) {
       --silent_for_;
       return;
@@ -257,7 +288,12 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   std::vector<Command> commands_;
   std::size_t write_calls_{0};
   std::uint8_t heartbeat_seq_{0};
+  static constexpr std::size_t kSpinEscape = 10000;
+
   bool open_{true};
+  bool close_on_next_command_{false};
+  std::optional<std::chrono::milliseconds> close_at_;
+  std::size_t waits_while_closed_{0};
   bool fail_writes_{false};
   bool silent_{false};
   std::size_t silent_for_{0};
