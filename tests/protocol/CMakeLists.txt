@@ -23,3 +23,8 @@ pigeon_add_test(protocol_message_test
   SOURCES message_test.cpp
   LIBS pigeon::protocol
 )
+
+pigeon_add_test(protocol_framer_test
+  SOURCES framer_test.cpp
+  LIBS pigeon::protocol
+)
