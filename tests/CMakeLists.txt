@@ -37,6 +37,9 @@ endfunction()
 add_subdirectory(core)
 add_subdirectory(protocol)
 
+# The host link needs no ncnn, so its suite is always built (ADR-0021).
+add_subdirectory(raspberry/link)
+
 # The real detector's suite exists only when ncnn does; the top-level
 # CMakeLists.txt owns that probe and fails configuration under
 # PIGEON_STRICT_TOOLS=1, so CI cannot skip this silently (ADR-0019 §7).
