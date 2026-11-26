@@ -1,6 +1,6 @@
 # ADR-0023 — A reader thread drives the host link, and health is read without a lock
 
-**Status:** Proposed
+**Status:** Accepted (maintainer, 2026-11-26)
 **Date:** 2026-11-26
 **Affects:** `REQ-COM-003`, `REQ-COM-002`, `REQ-DET-003`, `REQ-DEV-002`;
 `raspberry/link/`; ADR-0021 (follow-up 3), ADR-0016
