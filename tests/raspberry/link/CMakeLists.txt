@@ -60,7 +60,13 @@ pigeon_add_test(link_health_test
   LIBS pigeon::raspberry_link
 )
 
+pigeon_add_test(concurrent_actuator_link_test
+  SOURCES concurrent_actuator_link_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
 foreach(target
+    concurrent_actuator_link_test
     link_health_test
     steady_clock_test
     serial_actuator_link_lost_line_test
