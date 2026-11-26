@@ -27,8 +27,10 @@ namespace pigeon::test_support {
 /// link. Time passes only inside `wait_readable`, by advancing the test's
 /// `ManualClock`, so nothing here sleeps and nothing reads the wall clock.
 ///
-/// It models the *line and the device's answers*, not the device's limits: how
-/// a real device decides is `device-protocol.md` section 5.1 and belongs to the
+/// It models the *line and the device's answers*. Of the device's own limits
+/// (`device-protocol.md` section 5.1) it keeps only the two that need no memory:
+/// the aiming envelope and the 500 ms burst bound. The cool-down is a test's to
+/// ask for with `answer_with_result(3)`; how a real device keeps it belongs to the
 /// firmware. Faults are switched on by the test that needs them.
 class SimulatedDevice final : public pigeon::raspberry::ByteStream {
  public:
@@ -36,6 +38,11 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   struct Command {
     std::uint8_t type{0};
     std::uint8_t seq{0};
+    /// `AIM` payload, in hundredths of a degree.
+    std::int16_t x_centidegrees{0};
+    std::int16_t y_centidegrees{0};
+    /// `FIRE` payload, in milliseconds.
+    std::uint16_t duration_ms{0};
   };
 
   explicit SimulatedDevice(ManualClock& clock) : clock_{clock} {}
@@ -84,7 +91,7 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   void answer_with_seq_offset(std::uint8_t offset) noexcept { seq_offset_ = offset; }
   /// Answer naming a different command type than the one received.
   void answer_naming_type(std::uint8_t type) noexcept { named_type_ = type; }
-  /// Answer with this raw result byte instead of `ACCEPTED`.
+  /// Answer every command with this raw result byte, whatever the limits say.
   void answer_with_result(std::uint8_t result) noexcept { result_ = result; }
 
   /// Put a well-formed `HEARTBEAT` on the line now, as the device's own timer
@@ -117,7 +124,14 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
     if (received.status != pigeon::protocol::ReceiveStatus::VALID) {
       return;  // a device discards what it cannot trust; nothing here needs more
     }
-    commands_.push_back(Command{received.type, received.seq});
+    Command command{received.type, received.seq};
+    if (received.type == pigeon::protocol::to_byte(pigeon::protocol::MessageType::AIM)) {
+      command.x_centidegrees = received.aim.x_centidegrees;
+      command.y_centidegrees = received.aim.y_centidegrees;
+    } else if (received.type == pigeon::protocol::to_byte(pigeon::protocol::MessageType::FIRE)) {
+      command.duration_ms = received.fire.duration_ms;
+    }
+    commands_.push_back(command);
     if (silent_) {
       return;
     }
@@ -125,7 +139,7 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
     std::array<std::uint8_t, pigeon::protocol::max_wire_message_bytes> wire{};
     const auto length = pigeon::protocol::encode_reply(
         static_cast<std::uint8_t>(received.seq + seq_offset_),
-        pigeon::protocol::ReplyPayload{named_type_.value_or(received.type), result_},
+        pigeon::protocol::ReplyPayload{named_type_.value_or(received.type), result_for(command)},
         pigeon::protocol::MutableBytes{wire.data(), wire.size()});
     auto reply = std::span<std::uint8_t>{wire.data(), length};
     if (corrupt_replies_ && reply.size() >= 3) {
@@ -133,6 +147,24 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
       damaged = (damaged == 0x55) ? 0xAA : 0x55;
     }
     emit_raw(reply);
+  }
+
+  /// What a device with the deployment limits says to this command (5.1).
+  [[nodiscard]] std::uint8_t result_for(const Command& command) const noexcept {
+    using pigeon::protocol::MessageType;
+    using pigeon::protocol::ResultCode;
+    if (result_.has_value()) {
+      return *result_;
+    }
+    if (command.type == pigeon::protocol::to_byte(MessageType::AIM)) {
+      const bool inside = command.x_centidegrees >= -9000 && command.x_centidegrees <= 9000 &&
+                          command.y_centidegrees >= 0 && command.y_centidegrees <= 4500;
+      return pigeon::protocol::to_byte(inside ? ResultCode::ACCEPTED : ResultCode::REJECTED_ANGLE);
+    }
+    if (command.type == pigeon::protocol::to_byte(MessageType::FIRE) && command.duration_ms > 500) {
+      return pigeon::protocol::to_byte(ResultCode::REJECTED_DURATION);
+    }
+    return pigeon::protocol::to_byte(ResultCode::ACCEPTED);
   }
 
   ManualClock& clock_;
@@ -147,7 +179,7 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   bool corrupt_replies_{false};
   std::uint8_t seq_offset_{0};
   std::optional<std::uint8_t> named_type_;
-  std::uint8_t result_{pigeon::protocol::to_byte(pigeon::protocol::ResultCode::ACCEPTED)};
+  std::optional<std::uint8_t> result_;
 };
 
 }  // namespace pigeon::test_support
