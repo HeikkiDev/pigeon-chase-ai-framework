@@ -23,8 +23,8 @@ using pigeon::test_support::RecordingStream;
 using std::chrono::milliseconds;
 
 TEST(SerialActuatorLinkHealth, ALineThatHasJustOpenedIsUnavailableAndNothingHasBeenSent) {
-  RecordingStream line;
   ManualClock clock;
+  RecordingStream line{clock};
 
   const SerialActuatorLink link{line, clock};
 
@@ -33,8 +33,8 @@ TEST(SerialActuatorLinkHealth, ALineThatHasJustOpenedIsUnavailableAndNothingHasB
 }
 
 TEST(SerialActuatorLinkHealth, AClosedLineIsUnavailable) {
-  RecordingStream line{/*open=*/false};
   ManualClock clock;
+  RecordingStream line{clock, /*open=*/false};
 
   const SerialActuatorLink link{line, clock};
 
@@ -42,8 +42,8 @@ TEST(SerialActuatorLinkHealth, AClosedLineIsUnavailable) {
 }
 
 TEST(SerialActuatorLinkHealth, AskingRepeatedlyAsTimePassesTransmitsNothing) {
-  RecordingStream line;
   ManualClock clock;
+  RecordingStream line{clock};
   const SerialActuatorLink link{line, clock};
 
   for (int i = 0; i < 20; ++i) {

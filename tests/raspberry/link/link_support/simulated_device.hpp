@@ -43,6 +43,8 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
     std::int16_t y_centidegrees{0};
     /// `FIRE` payload, in milliseconds.
     std::uint16_t duration_ms{0};
+    /// When the device received it, on the test's clock.
+    std::chrono::milliseconds received_at{0};
   };
 
   explicit SimulatedDevice(ManualClock& clock) : clock_{clock} {}
@@ -74,14 +76,32 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   }
 
   void wait_readable(std::chrono::milliseconds max) noexcept override {
-    if (outbox_.empty()) {
-      clock_.advance_by(max);
+    if (!outbox_.empty()) {
+      return;
     }
+    const auto now = clock_.now().since_epoch;
+    if (heartbeat_interval_.has_value() && next_heartbeat_ <= now + max) {
+      clock_.advance_by(next_heartbeat_ - now);
+      emit_heartbeat();
+      next_heartbeat_ += *heartbeat_interval_;
+      return;
+    }
+    clock_.advance_by(max);
   }
 
   // --- what a test can switch on ------------------------------------------
 
   void close() noexcept { open_ = false; }
+  /// Heartbeat on its own timer from now on, as the real device does from
+  /// power-up: the first after one interval, then every interval. They are put on
+  /// the line while the link waits (`wait_readable`), which is the only place
+  /// time passes.
+  void start_heartbeats(std::chrono::milliseconds interval) noexcept {
+    heartbeat_interval_ = interval;
+    next_heartbeat_ = clock_.now().since_epoch + interval;
+  }
+  /// Receive the next `count` commands without answering them, then answer.
+  void stay_silent_for(std::size_t count) noexcept { silent_for_ = count; }
   void fail_writes() noexcept { fail_writes_ = true; }
   /// Receive commands but never answer them (or start answering them again).
   void stay_silent(bool silent = true) noexcept { silent_ = silent; }
@@ -125,6 +145,7 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
       return;  // a device discards what it cannot trust; nothing here needs more
     }
     Command command{received.type, received.seq};
+    command.received_at = clock_.now().since_epoch;
     if (received.type == pigeon::protocol::to_byte(pigeon::protocol::MessageType::AIM)) {
       command.x_centidegrees = received.aim.x_centidegrees;
       command.y_centidegrees = received.aim.y_centidegrees;
@@ -132,6 +153,10 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
       command.duration_ms = received.fire.duration_ms;
     }
     commands_.push_back(command);
+    if (silent_for_ > 0) {
+      --silent_for_;
+      return;
+    }
     if (silent_) {
       return;
     }
@@ -176,6 +201,9 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   bool open_{true};
   bool fail_writes_{false};
   bool silent_{false};
+  std::size_t silent_for_{0};
+  std::optional<std::chrono::milliseconds> heartbeat_interval_;
+  std::chrono::milliseconds next_heartbeat_{0};
   bool corrupt_replies_{false};
   std::uint8_t seq_offset_{0};
   std::optional<std::uint8_t> named_type_;

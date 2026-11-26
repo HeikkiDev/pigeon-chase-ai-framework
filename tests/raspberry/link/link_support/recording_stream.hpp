@@ -9,6 +9,7 @@
 #include <span>
 
 #include "pigeon/raspberry/byte_stream.hpp"
+#include "support/manual_clock.hpp"
 
 namespace pigeon::test_support {
 
@@ -18,7 +19,9 @@ namespace pigeon::test_support {
 /// do (transmit, for example) before there is anything on the line to answer.
 class RecordingStream final : public pigeon::raspberry::ByteStream {
  public:
-  explicit RecordingStream(bool open = true) : open_{open} {}
+  /// `clock` is the test's: waiting on this line lets that time pass, as it must
+  /// on any `ByteStream`, so that nothing the link waits for can wait forever.
+  explicit RecordingStream(ManualClock& clock, bool open = true) : clock_{clock}, open_{open} {}
 
   [[nodiscard]] bool is_open() const noexcept override { return open_; }
 
@@ -29,12 +32,13 @@ class RecordingStream final : public pigeon::raspberry::ByteStream {
     return open_;
   }
 
-  void wait_readable(std::chrono::milliseconds /*max*/) noexcept override {}
+  void wait_readable(std::chrono::milliseconds max) noexcept override { clock_.advance_by(max); }
 
   /// Every byte handed to `write`, whether or not the line was open.
   [[nodiscard]] std::size_t bytes_written() const noexcept { return bytes_written_; }
 
  private:
+  ManualClock& clock_;
   bool open_;
   std::size_t bytes_written_{0};
 };
