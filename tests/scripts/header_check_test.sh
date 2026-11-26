@@ -123,6 +123,36 @@ EOF
 expect_exit 'ignores headers outside core/' 0 \
   "$HEADER_CHECK" --root "$sandbox"
 
+# ------------------------------------------- protocol/ is checked too (ADR-0021) --
+#
+# The device codec's headers are compiled into the firmware by whatever includes
+# them first there, so each must stand alone exactly as core/'s do.
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/good.hpp" <<'EOF2'
+#pragma once
+
+#include <cstdint>
+
+namespace pigeon::protocol {
+inline constexpr std::uint8_t good = 1;
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'accepts a self-contained protocol/ header' 0 "$HEADER_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/bad.hpp" <<'EOF2'
+#pragma once
+
+namespace pigeon::protocol {
+inline constexpr std::uint8_t bad = 1;
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a protocol/ header that does not include what it uses' 1 \
+  "$HEADER_CHECK" --root "$sandbox"
+expect_output_contains 'names the protocol/ header that is not self-contained' \
+  'protocol/include/pigeon/protocol/bad.hpp' "$HEADER_CHECK" --root "$sandbox"
+
 # ------------------------------------------------------------ the real repository --
 expect_exit 'the real repository has only self-contained public headers' 0 \
   "$HEADER_CHECK" --root "$PIGEON_REPO_ROOT"

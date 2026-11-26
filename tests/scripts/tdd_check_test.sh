@@ -174,4 +174,35 @@ commit_in "$history" 'another sloppy one' '' 'core/src/legacy.cpp'
 expect_exit 'still rejects violations committed after the baseline' 1 \
   "$TDD_CHECK" --root "$history" --range 'main~3..main'
 
+# --------------------------------------- protocol/ is production code too --
+#
+# The device codec is as safety-relevant as core/, and is compiled into the
+# firmware (ADR-0021). The red-before-green rules hold there as well.
+
+history="$(new_history)"
+commit_in "$history" 'test(tests): specify the framer' 'Refs: REQ-EXA-001' \
+  'tests/protocol/framer_test.cpp'
+commit_in "$history" 'feat(protocol): implement the framer' 'Refs: REQ-EXA-001' \
+  'protocol/include/pigeon/protocol/framer.hpp'
+expect_exit 'accepts a red commit then a green commit for protocol/' 0 \
+  "$TDD_CHECK" --root "$history" --range 'main~2..main'
+
+history="$(new_history)"
+commit_in "$history" 'feat(protocol): implement and test at once' 'Refs: REQ-EXA-001' \
+  'protocol/include/pigeon/protocol/framer.hpp' 'tests/protocol/framer_test.cpp'
+expect_exit 'rejects a commit that mixes tests with protocol/ code' 1 \
+  "$TDD_CHECK" --root "$history" --range 'main~1..main'
+
+history="$(new_history)"
+commit_in "$history" 'feat(protocol): implement with no test first' 'Refs: REQ-EXA-001' \
+  'protocol/include/pigeon/protocol/framer.hpp'
+expect_exit 'rejects new protocol/ behaviour with no preceding test commit' 1 \
+  "$TDD_CHECK" --root "$history" --range 'main~1..main'
+
+history="$(new_history)"
+commit_in "$history" 'docs(protocol): touch the module' 'no requirement named here' \
+  'protocol/CMakeLists.txt'
+expect_exit 'rejects a protocol/ commit that cites no requirement' 1 \
+  "$TDD_CHECK" --root "$history" --range 'main~1..main'
+
 finish
