@@ -18,8 +18,9 @@
 # Verifies the source-tree half of:
 #   REQ-DEV-001  the system builds from a clean checkout with no hardware
 #
-# Scope is core/ and protocol/. raspberry/ and arduino/ are hardware layers whose
-# headers need a cross-toolchain this gate does not have and must not assume.
+# Scope is core/ and protocol/ (the latter compiled as C++17). raspberry/ and
+# arduino/ are hardware layers whose headers need a cross-toolchain this gate
+# does not have and must not assume.
 #
 # Usage:
 #   scripts/header-check.sh              # check this repository
@@ -114,12 +115,20 @@ for entry in "${entries[@]}"; do
   include_dir="$ROOT/$module/include"
   relative="${header#"$include_dir"/}"
 
+  # protocol/ is built as C++20 like everything else but is held to C++17 here:
+  # the firmware toolchain may not have C++20, and a C++20 construct in the codec
+  # would build on the host and fail on the device (ADR-0021 D3).
+  module_standard="$standard"
+  if [[ "$module" == "protocol" ]]; then
+    module_standard=17
+  fi
+
   # The header is included by its public path and nothing else is in scope, so
   # anything it needs and does not include is a diagnostic rather than a lucky
   # inheritance from a neighbour.
   printf '#include "%s"\n' "$relative" > "$probe"
 
-  if ! "$compiler" -std="c++${standard}" -I "$include_dir" \
+  if ! "$compiler" -std="c++${module_standard}" -I "$include_dir" \
     -fsyntax-only "$probe" > "$log" 2>&1; then
     violations=$((violations + 1))
     printf '    violation: %s is not self-contained\n' "$module/include/$relative"
