@@ -74,6 +74,7 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
   // backlog because nobody polled for a while.
   poll();
   if (!line_.write(wire)) {
+    faulted_ = true;
     return LinkStatus::TRANSPORT_FAILURE;
   }
 
@@ -95,6 +96,9 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
     line_.wait_readable(deadline - now);
   }
   pending_.reset();
+  // Any answer, even a refusal, shows commands are being answered; a fault does
+  // not (section 7).
+  faulted_ = (outcome == LinkStatus::TRANSPORT_FAILURE);
   return outcome;
 }
 
@@ -150,6 +154,9 @@ LinkStatus SerialActuatorLink::health() const noexcept {
   }
   if (clock_.now().since_epoch - *last_heard_ >= timings_.silence_timeout) {
     return LinkStatus::UNAVAILABLE;
+  }
+  if (faulted_) {
+    return LinkStatus::TRANSPORT_FAILURE;
   }
   return LinkStatus::OK;
 }

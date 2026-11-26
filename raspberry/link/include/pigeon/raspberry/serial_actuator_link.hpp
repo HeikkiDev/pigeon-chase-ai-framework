@@ -37,7 +37,8 @@ struct LinkTimings {
 /// waiting (`REQ-DEV-002`).
 ///
 /// **Work in progress.** Liveness (`UNAVAILABLE` or `OK`) and the `SAFE_STATE`
-/// exchange are implemented; the `faulted` and `rejected` flags are not. `AIM` and `FIRE` refuse
+/// exchange are implemented, with the `faulted` flag; `rejected` is not, since
+/// only `AIM` and `FIRE` set it. `AIM` and `FIRE` refuse
 /// everything until their exchanges are built, which fails closed: only `LinkStatus::OK` permits a
 /// burst.
 class SerialActuatorLink final : public pigeon::core::ActuatorLink {
@@ -90,6 +91,9 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
   std::optional<Pending> pending_;
   /// When the host last read a valid device message (section 7).
   std::optional<std::chrono::milliseconds> last_heard_;
+  /// Set when an exchange ends in a fault and cleared when one is answered, even
+  /// by a refusal. A heartbeat never clears it (section 7).
+  bool faulted_{false};
   /// When `poll` last ran, for the stall rule.
   std::chrono::milliseconds last_poll_;
   std::uint8_t next_seq_{0};
