@@ -77,7 +77,10 @@ TEST_F(SerialPort, RefusesSomethingThatIsNotATerminal) {
   SerialPortStream stream{"/dev/null"};
 
   EXPECT_FALSE(stream.is_open());
-  EXPECT_EQ(stream.open_error(), ENOTTY);
+  // What a device that is not a terminal answers to tcgetattr differs between
+  // systems: Linux says ENOTTY, macOS says ENODEV (seen on the CI runner).
+  EXPECT_TRUE(stream.open_error() == ENOTTY || stream.open_error() == ENODEV)
+      << "open_error() was " << stream.open_error();
 }
 
 TEST_F(SerialPort, RefusesALineSpeedItDoesNotKnow) {
