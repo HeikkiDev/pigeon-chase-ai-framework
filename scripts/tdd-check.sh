@@ -8,11 +8,17 @@
 #
 # For every commit in the range it verifies:
 #   1. The subject follows Conventional Commits (AGENTS.md).
-#   2. A commit touching core/ or tests/ names the requirements it serves.
+#   2. A commit touching core/, protocol/ or tests/ names the requirements it
+#      serves.
 #   3. No commit mixes the specification (tests/) with the implementation
-#      (core/), because a mixed commit makes the red step unobservable.
-#   4. New behaviour (feat/fix in core/) is preceded by a commit that changed
-#      tests/ — the failing specification it was written against.
+#      (core/ or protocol/), because a mixed commit makes the red step
+#      unobservable.
+#   4. New behaviour (feat/fix in core/ or protocol/) is preceded by a commit
+#      that changed tests/ — the failing specification it was written against.
+
+# protocol/ is the device wire codec, compiled into the firmware as well as the
+# host (ADR-0021). It is as safety-relevant as core/, so it is held to the same
+# rules.
 #
 # Usage:
 #   scripts/tdd-check.sh                       # origin/main..HEAD, or HEAD's branch
@@ -123,6 +129,8 @@ while IFS= read -r sha; do
       tests/*) touches_tests=1 ;;
       core/src/*|core/include/*) touches_production=1; touches_core=1 ;;
       core/*) touches_core=1 ;;
+      protocol/src/*|protocol/include/*) touches_production=1; touches_core=1 ;;
+      protocol/*) touches_core=1 ;;
     esac
   done <<< "$files"
 
@@ -149,7 +157,7 @@ while IFS= read -r sha; do
       END                 { if (pending != "") print pending }
     ')"
     if ! printf '%s\n' "$unfolded" | grep -qE "$REFS"; then
-      report "$short: touches core/ or tests/ but has no 'Refs: REQ-...' or 'Refs: infrastructure' trailer"
+      report "$short: touches core/, protocol/ or tests/ but has no 'Refs: REQ-...' or 'Refs: infrastructure' trailer"
     fi
   fi
 
@@ -170,7 +178,7 @@ while IFS= read -r sha; do
         fi
       fi
       if [[ "$red_ok" == "0" ]]; then
-        report "$short: adds behaviour to core/ with no preceding commit that changed tests/. Write the failing test first, or cite it with a 'Red: <sha>' trailer."
+        report "$short: adds behaviour to core/ or protocol/ with no preceding commit that changed tests/. Write the failing test first, or cite it with a 'Red: <sha>' trailer."
       fi
     fi
   fi
