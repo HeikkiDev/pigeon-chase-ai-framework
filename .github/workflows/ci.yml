@@ -53,7 +53,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake python3-venv
 
       # Unpinned, like Homebrew llvm on the macOS job (ADR-0017); the gate
       # prints the version it used. check.sh finds them through PATH.
@@ -63,14 +63,15 @@ jobs:
           "$RUNNER_TEMP/llvm/bin/pip" install --quiet clang-format clang-tidy
           echo "$RUNNER_TEMP/llvm/bin" >> "$GITHUB_PATH"
 
-      # Ubuntu has no ncnn package. It is built once per tag and cached, outside
-      # the checkout so the gate never mistakes its headers for project sources.
+      # Ubuntu has no ncnn package. It is built once and cached, outside the
+      # checkout so the gate never mistakes its headers for project sources. The
+      # key hashes this file, so changing the build flags below rebuilds it.
       - name: Cache ncnn
         id: ncnn-cache
         uses: actions/cache@v4
         with:
           path: ~/ncnn-install
-          key: ncnn-${{ env.NCNN_TAG }}-${{ runner.os }}-${{ runner.arch }}-static
+          key: ncnn-${{ env.NCNN_TAG }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml') }}
 
       - name: Build ncnn
         if: steps.ncnn-cache.outputs.cache-hit != 'true'
@@ -93,6 +94,8 @@ jobs:
       - name: Show toolchain
         run: |
           c++ --version | head -1
+          cmake --version | head -1
+          echo "ncnn tag $NCNN_TAG"
           clang-format --version
           clang-tidy --version | grep -i 'LLVM version'
 
@@ -103,6 +106,11 @@ jobs:
           PIGEON_STRICT_TOOLS: "1"
           PIGEON_COMMIT_RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || '' }}
         run: CMAKE_PREFIX_PATH="$HOME/ncnn-install" scripts/check.sh
+
+      # check.sh discards configure output, so show which ncnn was linked.
+      - name: Show the ncnn the build used
+        if: always()
+        run: grep '^ncnn_DIR' build/macos-debug/CMakeCache.txt || echo "ncnn_DIR not set"
 
   sanitizers:
     name: sanitizers (ASan + UBSan)
