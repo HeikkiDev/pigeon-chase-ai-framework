@@ -54,9 +54,9 @@ tested deterministically against the simulated device, with no thread. The runne
 tested only for what holds whatever the machine's load: it calls its function, and
 stopping it joins. Bounds exist only to stop a failing test from hanging
 (`REQ-DEV-002`). That `health()` takes no lock is tested by calling it from inside an
-exchange, on the same thread, while the wrapper holds its mutex: a `health()` that
-locked would deadlock, and the test carries a short CTest timeout so that shows as a
-failure.
+exchange that runs on a helper thread, while the wrapper holds its mutex: a
+`health()` that locked would deadlock, and a bounded wait on the main thread turns
+that into a failure, ending the process because a deadlock cannot be undone.
 
 ## Alternatives considered
 
@@ -91,9 +91,10 @@ failure.
   the previous state, which is what "answered without an exchange" means.
 * The reader period is real time on the device. It is a parameter (section 9), and
   the first hardware run may move it.
-* The test that `health()` takes no lock relies on a deadlock showing as a timeout,
-  which is a blunt instrument; it is the only way to observe a lock that should not
-  be there.
+* The test that `health()` takes no lock relies on a deadlock being caught by a
+  bounded wait and ending the test process, which is a blunt instrument; it is the
+  only way to observe a lock that should not be there. Mutating `health()` to take
+  the lock makes it fail in 5 s.
 
 ### Follow-up work
 
@@ -106,10 +107,15 @@ failure.
 
 * Deterministic tests of the snapshot packing and the shared health rule, including
   every combination of open, heard, silent, faulted and rejected.
-* Wrapper tests against the simulated device with no thread: a poll publishes what
-  it heard; a command publishes its outcome; `health()` from inside an exchange
-  returns without the lock (short CTest timeout).
-* Runner tests: it calls its function, and stopping it joins, with bounds only to
-  stop a failing test from hanging.
+* Wrapper tests against the simulated device with no thread
+  (`tests/raspberry/link/concurrent_actuator_link_test.cpp`): a poll publishes what
+  it heard; a command publishes its outcome; silence is judged at the time of the
+  query; `health()` from inside an exchange returns without the lock.
+* Runner tests (`periodic_runner_test.cpp`): it calls its work, stopping joins it
+  and is immediate mid-period, with bounds only to stop a failing test from hanging.
+* End to end through a pseudo-terminal with the real clock and the reader thread
+  (`concurrent_actuator_link_reader_test.cpp`): a heartbeat makes the link healthy
+  with no caller polling, and shutdown stops the reader and sends `SAFE_STATE`.
 * The suite runs under AddressSanitizer and UBSan in CI. ThreadSanitizer is not in
-  CI; adding it is noted as follow-up if the runner grows.
+  CI; the threaded tests were run under it by hand when this was built, and adding
+  it to CI is follow-up if the threading grows.

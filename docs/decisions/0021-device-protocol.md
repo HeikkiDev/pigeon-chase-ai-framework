@@ -163,10 +163,11 @@ Each is its own change, test-first:
    tested through a pseudo-terminal pair, which the maintainer ruled is not
    physical hardware and so may run in the default suite (Q27). A pseudo-terminal
    cannot show the real line speed, parity or stop bits. The real
-   `MonotonicClock` is `SteadyClock`, over `std::chrono::steady_clock`. *Not yet
-   built:* a hand-run check against a real Arduino (a tool under `tools/`, never
-   registered with CTest, like the detector benchmark), and whatever drives
-   `SerialActuatorLink::poll()` at least every 100 ms.
+   `MonotonicClock` is `SteadyClock`, over `std::chrono::steady_clock`. The reader
+   that polls every 100 ms is `ConcurrentActuatorLink` with its reader thread
+   (ADR-0023). *Not yet built:* a hand-run check against a real Arduino (a tool
+   under `tools/`, never registered with CTest, like the detector benchmark), and
+   the application entry point that wires the port, the clock and the link together.
 4. **The firmware** (`arduino/`): needs the board named and a toolchain
    decision, and cannot be built by the current CI.
 
