@@ -21,14 +21,29 @@ jobs:
           # so it needs history rather than a shallow clone.
           fetch-depth: 0
 
+      # Apple clang compiles; the linters come from the pinned PyPI wheels, the
+      # same ones the Linux job installs (ADR-0022). Homebrew's llvm cannot be
+      # pinned, so it is no longer installed.
       - name: Install toolchain
-        run: brew install ninja llvm ncnn
+        run: brew install ninja ncnn
+
+      - name: Install clang-format and clang-tidy (pinned)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/llvm"
+          "$RUNNER_TEMP/llvm/bin/pip" install --quiet -r scripts/lint-tools.txt
+          echo "$RUNNER_TEMP/llvm/bin" >> "$GITHUB_PATH"
 
       - name: Cache CMake dependencies
         uses: actions/cache@v4
         with:
           path: build/macos-debug/_deps
           key: deps-${{ runner.os }}-${{ hashFiles('cmake/GoogleTest.cmake') }}
+
+      - name: Show toolchain
+        run: |
+          c++ --version | head -1
+          clang-format --version
+          clang-tidy --version | grep -i 'LLVM version'
 
       # Runs the exact same entry point developers and agents run locally.
       # This now includes the architecture, determinism, traceability and
@@ -55,12 +70,13 @@ jobs:
       - name: Install toolchain
         run: sudo apt-get update && sudo apt-get install -y ninja-build cmake python3-venv
 
-      # Unpinned, like Homebrew llvm on the macOS job (ADR-0017); the gate
-      # prints the version it used. check.sh finds them through PATH.
-      - name: Install clang-format and clang-tidy
+      # Pinned in scripts/lint-tools.txt, which check.sh also reads, so this job and
+      # a local run use the same versions or say plainly that they do not
+      # (ADR-0022). check.sh finds them through PATH.
+      - name: Install clang-format and clang-tidy (pinned)
         run: |
           python3 -m venv "$RUNNER_TEMP/llvm"
-          "$RUNNER_TEMP/llvm/bin/pip" install --quiet clang-format clang-tidy
+          "$RUNNER_TEMP/llvm/bin/pip" install --quiet -r scripts/lint-tools.txt
           echo "$RUNNER_TEMP/llvm/bin" >> "$GITHUB_PATH"
 
       # Ubuntu has no ncnn package. It is built once and cached, outside the
