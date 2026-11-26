@@ -262,7 +262,10 @@ if [[ "$SKIP_TIDY" == "0" ]]; then
     if [[ -z "${tidy_files[0]:-}" ]]; then
       ok "no source files to analyse"
     else
-      "$CLANG_TIDY" -p "$BUILD_DIR" --quiet "${tidy_args[@]:-}" "${tidy_files[@]}" \
+      # tidy_args is empty off macOS. "${tidy_args[@]:-}" would then pass one
+      # empty argument, which clang-tidy rejects ("no checks enabled"); the
+      # ${a[@]+...} form expands to nothing and is safe under bash 3.2's set -u.
+      "$CLANG_TIDY" -p "$BUILD_DIR" --quiet ${tidy_args[@]+"${tidy_args[@]}"} "${tidy_files[@]}" \
         || fail "clang-tidy reported issues"
       ok "${#tidy_files[@]} file(s) analysed ($("$CLANG_TIDY" --version | grep -i 'LLVM version' | tr -s ' ' | sed 's/^ *//'))"
     fi
