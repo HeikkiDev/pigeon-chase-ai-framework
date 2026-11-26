@@ -49,8 +49,10 @@ GitHub's hosted `ubuntu-24.04-arm` runner and executes exactly what the macOS
 * **ncnn:** built from source at the tag ADR-0019 uses (`20260526`) as a
   static library, with Vulkan, tools, examples, benchmarks and Python bindings
   off. It is installed to a prefix outside the checkout (so the gate never
-  treats its headers as project sources), cached by tag and architecture, and
-  found through `CMAKE_PREFIX_PATH`. A cache hit skips the build.
+  treats its headers as project sources) and found through
+  `CMAKE_PREFIX_PATH`. The cache key covers the tag, the architecture and a
+  hash of the workflow file, so changing the build flags rebuilds it. A cache
+  hit skips the build.
 * **clang-format / clang-tidy:** installed from PyPI (`clang-format`,
   `clang-tidy` wheels) into a venv put first on `PATH`. They are not pinned,
   matching the unpinned Homebrew `llvm` on the macOS job (ADR-0017); the gate
@@ -71,10 +73,10 @@ specification.
 | Option | Why it was rejected |
 | ------ | ------------------- |
 | Keep macOS-only CI and rely on manual Linux runs | That is the current practice, and it is how the defects above reached a reviewed branch. |
-| `ubuntu-24.04` (x86_64) runner | Rejected by the maintainer (2026-11-26) in favour of arm64. Catches GCC and glibc issues but not arm64 ones: ncnn's NEON code paths, `char` signedness, alignment. The arm64 runner is equally free for a public repository and is the deployment architecture. |
+| `ubuntu-24.04` (x86_64) runner | Rejected by the maintainer (2026-11-26) in favour of arm64. It catches GCC and glibc issues, but arm64 Linux adds what neither x86 Linux nor arm64 macOS has: unsigned `char`, 128-bit `long double`, GCC's aarch64 code generation and `libgomp`, as on the Pi. The arm64 runner is equally free for a public repository. |
 | Cross-compile for arm64 and run tests under QEMU | Slower, more moving parts, and no closer to the target than a native arm64 runner. |
 | Run in a Raspberry Pi OS container image | Closer to the target userland, but adds a container image as a CI dependency for little gain over Ubuntu arm64 + GCC; can be revisited if a Pi-OS-specific defect appears. |
-| Install ncnn from a prebuilt release archive | Avoids the build, but the archives' CMake package and OpenMP linkage differ from a source build, and an unverified binary enters CI. Building from source is ~5 min once, then cached. |
+| Install ncnn from a prebuilt release archive | Avoids the build, but the archives' CMake package and OpenMP linkage differ from a source build, and an unverified binary enters CI. Building from source costs a few minutes once, then is cached. |
 | Install LLVM from apt.llvm.org | Adds a third-party apt repository and key to CI; PyPI wheels give the same tools with no repository changes. |
 | Also run ASan/UBSan on Linux | Useful, but doubles Linux CI time. Deferred until the first job has proven stable (follow-up). |
 
@@ -97,6 +99,10 @@ specification.
   patch versions; ADR-0017 already accepts that and the gate prints both.
 * The job depends on GitHub's arm64 hosted runners remaining free for public
   repositories.
+* Neither CI job runs the ncnn kernels the Pi 3B uses: GitHub's arm64 runners
+  and Apple silicon both have fp16 arithmetic, which the Pi's Cortex-A53 lacks,
+  so ncnn picks different kernels there. Only the hardware-in-the-loop benchmark
+  (`REQ-DET-003`) covers that path.
 
 ### Follow-up work
 
@@ -109,7 +115,8 @@ specification.
 
 The `check (Linux arm64)` job in `.github/workflows/ci.yml`. Its log must show:
 
-* `ncnn found (...)` at configure time, and compilation of
+* `ncnn_DIR` pointing at the cached ncnn install (printed after the gate,
+  because `check.sh` discards configure output), and compilation of
   `raspberry/src/ncnn_detector.cpp`, `tools/detector_benchmark.cpp` and the
   `tests/raspberry/ncnn_detector_*` tests;
 * the same test count as the macOS job, including the `NcnnDetector*` and
