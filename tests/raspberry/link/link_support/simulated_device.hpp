@@ -76,8 +76,10 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
 
   void close() noexcept { open_ = false; }
   void fail_writes() noexcept { fail_writes_ = true; }
-  /// Receive commands but never answer them.
-  void stay_silent() noexcept { silent_ = true; }
+  /// Receive commands but never answer them (or start answering them again).
+  void stay_silent(bool silent = true) noexcept { silent_ = silent; }
+  /// Damage every reply on the line, so that its CRC no longer matches.
+  void corrupt_replies() noexcept { corrupt_replies_ = true; }
   /// Answer with `seq` shifted by `offset`, as a late or stray reply would be.
   void answer_with_seq_offset(std::uint8_t offset) noexcept { seq_offset_ = offset; }
   /// Answer naming a different command type than the one received.
@@ -125,9 +127,12 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
         static_cast<std::uint8_t>(received.seq + seq_offset_),
         pigeon::protocol::ReplyPayload{named_type_.value_or(received.type), result_},
         pigeon::protocol::MutableBytes{wire.data(), wire.size()});
-    for (std::size_t i = 0; i < length; ++i) {
-      outbox_.push_back(wire[i]);
+    auto reply = std::span<std::uint8_t>{wire.data(), length};
+    if (corrupt_replies_ && reply.size() >= 3) {
+      std::uint8_t& damaged = reply[reply.size() - 2];  // last byte before the delimiter
+      damaged = (damaged == 0x55) ? 0xAA : 0x55;
     }
+    emit_raw(reply);
   }
 
   ManualClock& clock_;
@@ -139,6 +144,7 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   bool open_{true};
   bool fail_writes_{false};
   bool silent_{false};
+  bool corrupt_replies_{false};
   std::uint8_t seq_offset_{0};
   std::optional<std::uint8_t> named_type_;
   std::uint8_t result_{pigeon::protocol::to_byte(pigeon::protocol::ResultCode::ACCEPTED)};

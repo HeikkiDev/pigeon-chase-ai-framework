@@ -20,7 +20,13 @@ pigeon_add_test(serial_actuator_link_liveness_test
   LIBS pigeon::raspberry_link
 )
 
+pigeon_add_test(serial_actuator_link_fault_test
+  SOURCES serial_actuator_link_fault_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
 foreach(target
+    serial_actuator_link_fault_test
     serial_actuator_link_health_test
     serial_actuator_link_safe_state_test
     serial_actuator_link_liveness_test)
