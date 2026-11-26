@@ -34,6 +34,7 @@ if(PIGEON_WARNINGS_AS_ERRORS)
 endif()
 
 add_subdirectory(core)
+add_subdirectory(protocol)
 
 # The model runtime (ADR-0019). ncnn is optional locally and mandatory in CI,
 # by the same PIGEON_STRICT_TOOLS precedent scripts/check.sh uses for

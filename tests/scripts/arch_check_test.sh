@@ -266,6 +266,200 @@ sandbox="$(new_sandbox)"
 expect_exit 'permits a tree in which refusal_for does not yet exist' 0 \
   "$ARCH_CHECK" --root "$sandbox"
 
+# -------------------------------- protocol/ is a freestanding subset (ADR-0021) --
+#
+# The device codec is compiled into the firmware as well as the host, by a
+# toolchain that is not chosen. protocol.instructions.md says what that means; this
+# is where it is enforced: only freestanding headers, no allocation, no
+# exceptions, no virtual functions, no hardware, no clock, and no dependence on
+# the rest of the repository.
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/clean.hpp" <<'EOF2'
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <type_traits>
+
+#include "pigeon/protocol/bytes.hpp"
+
+namespace pigeon::protocol {
+
+// Words like new, delete, throw, try, catch and virtual in a comment or in a
+// string are not constructs: a message that never throws, a new message.
+inline constexpr const char* clean_note = "never throw, never new, never virtual";
+
+class Clean {
+ public:
+  Clean() = default;
+  Clean(const Clean&) = delete;
+  Clean& operator=(const Clean&) = delete;
+};
+
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'accepts a protocol/ tree that is a clean freestanding subset' 0 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+for header in 'termios.h' 'Arduino.h' 'linux/serial.h' 'wiringPi.h'; do
+  sandbox="$(new_sandbox)"
+  write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<EOF2
+#pragma once
+#include <${header}>
+EOF2
+  expect_exit "rejects <${header}> in protocol/" 1 "$ARCH_CHECK" --root "$sandbox"
+done
+
+for header in 'vector' 'string' 'memory' 'map' 'optional' 'variant' 'span' 'array' 'functional' 'iostream' 'chrono' 'exception'; do
+  sandbox="$(new_sandbox)"
+  write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<EOF2
+#pragma once
+#include <${header}>
+EOF2
+  expect_exit "rejects <${header}> in protocol/ (not a freestanding header)" 1 \
+    "$ARCH_CHECK" --root "$sandbox"
+done
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+#include "pigeon/core/geometry.hpp"
+EOF2
+expect_exit 'rejects protocol/ including a header of core/' 1 "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+#include "pigeon/raspberry/ncnn_detector.hpp"
+EOF2
+expect_exit 'rejects protocol/ including a header of raspberry/' 1 "$ARCH_CHECK" --root "$sandbox"
+
+for construct in 'int* leak() { return new int(1); }' \
+                 'void gone(int* p) { delete p; }' \
+                 'void bad() { throw 1; }' \
+                 'int safe() { try { return 1; } catch (...) { return 0; } }' \
+                 'struct Base { virtual ~Base() = default; };' \
+                 'const void* kind(const void* p) { return dynamic_cast<const void*>(p); }'; do
+  sandbox="$(new_sandbox)"
+  write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<EOF2
+#pragma once
+namespace pigeon::protocol {
+${construct}
+}  // namespace pigeon::protocol
+EOF2
+  expect_exit "rejects '${construct%% *}...' in protocol/" 1 "$ARCH_CHECK" --root "$sandbox"
+done
+
+# Each construct on its own, so that no one word in the list can be dropped
+# unnoticed because another happened to catch the same offender.
+for construct in 'void only_try() { try { } }' \
+                 'void only_catch() { catch (...) { } }' \
+                 'const void* kind(int x) { return &typeid(x); }'; do
+  sandbox="$(new_sandbox)"
+  write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<EOF2
+#pragma once
+namespace pigeon::protocol {
+${construct}
+}  // namespace pigeon::protocol
+EOF2
+  expect_exit "rejects '${construct%% *} ${construct#* }' in protocol/" 1 "$ARCH_CHECK" --root "$sandbox"
+done
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+inline constexpr const char* port = "/dev/ttyUSB0";
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a device path in protocol/' 1 "$ARCH_CHECK" --root "$sandbox"
+
+# ------------------------------------------------------ block comments are not code --
+#
+# A construct after a block comment is still code, whatever the comment looked like.
+# The gate once treated a `*` inside a one-line block comment as the start of one
+# that never ended, and so stopped looking at the rest of the file.
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+/** A doc comment, as people write them. */
+inline int* leak() { return new int(1); }
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a construct that follows a one-line /** doc */ comment' 1 "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+/* a * b */
+inline int* leak() { return new int(1); }
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a construct that follows a block comment containing a star' 1 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+/* a comment that goes on
+   for several lines and says new, throw and virtual
+   until here */ inline int* leak() { return new int(1); } /* and another */
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects code on the line where a multi-line comment closes, even with another comment after it' 1 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+namespace pigeon::protocol {
+inline const char* text() { return "/* not a comment"; }
+inline int* leak() { return new int(1); }
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a construct after a string that merely contains a comment opener' 1 \
+  "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/clean.hpp" <<'EOF2'
+#pragma once
+#include <cstdint>
+namespace pigeon::protocol {
+/**
+ * Prose may say new, delete, throw, try, catch, virtual, dynamic_cast and typeid
+ * as often as it likes: a star at the start of each line, and words in a
+ * multi-line comment, are not constructs.
+ */
+/** One line of the same, with a * in it and the word virtual. */
+inline constexpr std::uint8_t value = 1;  /* trailing, with new in it */
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'accepts words in block comments of every shape' 0 "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+#include <cstdint>
+namespace pigeon::protocol {
+inline std::uint32_t stamp() { return static_cast<std::uint32_t>(std::rand()); }
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a call to rand in protocol/' 1 "$ARCH_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/offender.hpp" <<'EOF2'
+#pragma once
+#include <iostream>
+EOF2
+expect_output_contains 'names the offending file and header in protocol/' 'protocol/include/pigeon/protocol/offender.hpp' \
+  "$ARCH_CHECK" --root "$sandbox"
+
 # ------------------------------------------------------------ the real repository --
 expect_exit 'the real repository satisfies its own architectural rules' 0 \
   "$ARCH_CHECK" --root "$PIGEON_REPO_ROOT"

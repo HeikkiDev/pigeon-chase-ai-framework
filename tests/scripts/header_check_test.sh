@@ -123,6 +123,66 @@ EOF
 expect_exit 'ignores headers outside core/' 0 \
   "$HEADER_CHECK" --root "$sandbox"
 
+# ------------------------------------------- protocol/ is checked too (ADR-0021) --
+#
+# The device codec's headers are compiled into the firmware by whatever includes
+# them first there, so each must stand alone exactly as core/'s do.
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/good.hpp" <<'EOF2'
+#pragma once
+
+#include <cstdint>
+
+namespace pigeon::protocol {
+inline constexpr std::uint8_t good = 1;
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'accepts a self-contained protocol/ header' 0 "$HEADER_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/bad.hpp" <<'EOF2'
+#pragma once
+
+namespace pigeon::protocol {
+inline constexpr std::uint8_t bad = 1;
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a protocol/ header that does not include what it uses' 1 \
+  "$HEADER_CHECK" --root "$sandbox"
+expect_output_contains 'names the protocol/ header that is not self-contained' \
+  'protocol/include/pigeon/protocol/bad.hpp' "$HEADER_CHECK" --root "$sandbox"
+
+# ----------------------------- protocol/ is compiled as C++17 (ADR-0021 D3) --
+#
+# The firmware toolchain may not have C++20, so a C++20 construct in the codec is
+# a defect even though the repository builds it as C++20. The standard comes from
+# CMake for core/, which really is C++20; protocol/ is held to C++17.
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/protocol/include/pigeon/protocol/modern.hpp" <<'EOF2'
+#pragma once
+
+namespace pigeon::protocol {
+template <typename T>
+concept Small = sizeof(T) <= 4;
+}  // namespace pigeon::protocol
+EOF2
+expect_exit 'rejects a C++20 construct in a protocol/ header' 1 "$HEADER_CHECK" --root "$sandbox"
+expect_output_contains 'names the protocol/ header that needs C++20' \
+  'protocol/include/pigeon/protocol/modern.hpp' "$HEADER_CHECK" --root "$sandbox"
+
+sandbox="$(new_sandbox)"
+write_file "$sandbox/core/include/pigeon/core/modern.hpp" <<'EOF2'
+#pragma once
+
+namespace pigeon::core {
+template <typename T>
+concept Small = sizeof(T) <= 4;
+}  // namespace pigeon::core
+EOF2
+expect_exit 'still accepts a C++20 construct in a core/ header' 0 "$HEADER_CHECK" --root "$sandbox"
+
 # ------------------------------------------------------------ the real repository --
 expect_exit 'the real repository has only self-contained public headers' 0 \
   "$HEADER_CHECK" --root "$PIGEON_REPO_ROOT"

@@ -40,7 +40,7 @@ It will be responsible for low-level physical control:
 * Positioning the deterrent according to the requested angles.
 * Controlling the water actuator.
 
-The communication protocol between the Raspberry Pi and Arduino is a defined system boundary and should be documented separately.
+The communication protocol between the Raspberry Pi and Arduino is a defined system boundary, specified in [`device-protocol.md`](device-protocol.md) (`REQ-COM-001`, ADR-0021).
 
 ## Detection and Confirmation
 
@@ -275,12 +275,13 @@ is answered entirely on the commanding side; the firmware keeps that picture
 current by replying to every command and emitting a periodic heartbeat, so a
 fault is visible without a fire command being sent to discover it
 (`REQ-COM-003`). Its wire
-encoding — framing, checksums, replies — is still to be specified in this
-directory (`REQ-COM-001`), and the interface deliberately says nothing about
-it. Because no seam in `core/` represents the encoding, `REQ-COM-001` has
-nothing to test against and stays `UNVERIFIED` until that protocol is
-designed; the requirement now records this explicitly so its status is
-explained rather than mysterious.
+encoding — framing, checksums, replies — is specified in
+[`device-protocol.md`](device-protocol.md) (`REQ-COM-001`), and the interface
+deliberately says nothing about it. Because no seam in `core/` represents the
+encoding, `REQ-COM-001` has nothing in `core/` to test against and stays
+`UNVERIFIED` until the codec and both ends of the line are built (ADR-0021);
+the requirement records this explicitly so its status is explained rather than
+mysterious.
 
 ## Development Principles
 
@@ -302,12 +303,16 @@ manual and this document owns the product description.
 | Module       | Responsibility                                                | May depend on          |
 | ------------ | ------------------------------------------------------------- | ---------------------- |
 | `core/`      | Detection contracts, target state machine, targeting maths, command generation | C++ standard library only |
-| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`, ncnn          |
-| `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries only |
-| `tests/`     | Verification of the above using simulated implementations     | `core/`, GoogleTest    |
+| `protocol/`  | The device wire codec shared by both ends of the link: CRC-16, COBS framing, message encode and decode (ADR-0021) | C++ standard library only, a freestanding subset |
+| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`, `protocol/`, ncnn |
+| `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries, `protocol/` |
+| `tests/`     | Verification of the above using simulated implementations     | `core/`, `protocol/`, GoogleTest |
 
-The dependency direction is one-way into `core/`. A hardware header appearing
-anywhere under `core/` is an architectural defect, not a style issue.
+The dependency direction is one-way into `core/` and into `protocol/`. A
+hardware header appearing anywhere under `core/` or `protocol/` is an
+architectural defect, not a style issue. `core/` does not depend on
+`protocol/`: it models the device boundary as operations, and the encoding that
+carries them is `protocol/`'s business (ADR-0007, ADR-0021).
 
 ## Testing Strategy
 

@@ -35,6 +35,7 @@ function(pigeon_add_test name)
 endfunction()
 
 add_subdirectory(core)
+add_subdirectory(protocol)
 
 # The real detector's suite exists only when ncnn does; the top-level
 # CMakeLists.txt owns that probe and fails configuration under

@@ -21,19 +21,24 @@ safety-critical firmware, not as a sketch.
 
 These are not negotiable.
 
-- **Enforce limits locally.** Clamp every requested angle to the mechanical
-  envelope in firmware. Never trust the host to have clamped it
-  (`REQ-AIM-002`).
+- **Enforce limits locally.** Check every requested angle against the
+  mechanical envelope in firmware and **refuse** one outside it: reply
+  `REJECTED_ANGLE` and leave the servos where they are, do not clamp and move
+  (`REQ-AIM-002`, Q26). Never trust the host to have clamped it.
 - **Bound the fire duration.** The water actuator self-deactivates after the
   configured maximum, without needing a stop command (`REQ-SAF-001`).
-- **Fail safe.** On reset, on malformed input, on watchdog expiry, and on loss
-  of the serial link, deactivate the water actuator and hold position
-  (`REQ-SAF-004`, `REQ-COM-002`).
+- **Fail safe.** On reset, on malformed input and on watchdog expiry,
+  deactivate the water actuator and hold position (`REQ-SAF-004`,
+  `REQ-COM-002`). Loss of the serial link needs no detector of its own: every
+  burst ends from the firmware's own timer, so the valve is already closed
+  whenever the link goes quiet (`REQ-SAF-001`, ADR-0021 D4).
 - **Deactivate on startup**, before anything else, and before enabling servo
   output.
 - **Validate every command** before acting: length, checksum, range. A
   malformed command is discarded, never partially executed.
-- Use a watchdog. A hung firmware must not leave the water on.
+- Use the microcontroller's **hardware** watchdog. A hung firmware must not
+  leave the water on, and a software timer cannot be trusted to catch the
+  firmware that is itself hung (ADR-0021 D4).
 
 ## Embedded constraints
 
@@ -54,6 +59,8 @@ These are not negotiable.
   `docs/architecture/` (`REQ-COM-001`).
 - Parsing and framing logic should be written so it can be compiled and unit
   tested on the host as well as on the device. Keep it free of `Arduino.h`.
+  The codec already exists as the shared `protocol/` module (ADR-0021): use it,
+  do not reimplement it, so that the two ends cannot disagree about a byte.
 
 ## Testing
 

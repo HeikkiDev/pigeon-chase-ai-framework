@@ -18,8 +18,9 @@
 # Verifies the source-tree half of:
 #   REQ-DEV-001  the system builds from a clean checkout with no hardware
 #
-# Scope is core/ only. raspberry/ and arduino/ are hardware layers whose
-# headers need a cross-toolchain this gate does not have and must not assume.
+# Scope is core/ and protocol/ (the latter compiled as C++17). raspberry/ and
+# arduino/ are hardware layers whose headers need a cross-toolchain this gate
+# does not have and must not assume.
 #
 # Usage:
 #   scripts/header-check.sh              # check this repository
@@ -52,14 +53,21 @@ violations=0
 
 printf '\n\033[1m==> Checking public header self-containment\033[0m\n'
 
-INCLUDE_DIR="$ROOT/core/include"
+# Every module whose public headers are compiled into more than one place. core/
+# is the domain; protocol/ is the device codec, which the firmware includes too
+# (ADR-0021), so each of its headers must stand alone for the same reason.
+modules=(core protocol)
 
-headers="$(
-  [[ -d "$INCLUDE_DIR" ]] &&
-    find "$INCLUDE_DIR" -type f -name '*.hpp' 2>/dev/null | LC_ALL=C sort || true
-)"
+entries=()
+for module in "${modules[@]}"; do
+  include_dir="$ROOT/$module/include"
+  [[ -d "$include_dir" ]] || continue
+  while IFS= read -r found; do
+    [[ -n "$found" ]] && entries+=("$module|$found")
+  done < <(find "$include_dir" -type f -name '*.hpp' 2>/dev/null | LC_ALL=C sort)
+done
 
-if [[ -z "$headers" ]]; then
+if [[ "${#entries[@]}" -eq 0 ]]; then
   printf '\033[32m    ok: no public headers to check\033[0m\n'
   exit 0
 fi
@@ -101,31 +109,41 @@ trap 'rm -rf "$probe_dir"' EXIT
 probe="$probe_dir/probe.cpp"
 log="$probe_dir/probe.log"
 
-while IFS= read -r header; do
-  [[ -z "$header" ]] && continue
-  relative="${header#"$INCLUDE_DIR"/}"
+for entry in "${entries[@]}"; do
+  module="${entry%%|*}"
+  header="${entry#*|}"
+  include_dir="$ROOT/$module/include"
+  relative="${header#"$include_dir"/}"
+
+  # protocol/ is built as C++20 like everything else but is held to C++17 here:
+  # the firmware toolchain may not have C++20, and a C++20 construct in the codec
+  # would build on the host and fail on the device (ADR-0021 D3).
+  module_standard="$standard"
+  if [[ "$module" == "protocol" ]]; then
+    module_standard=17
+  fi
 
   # The header is included by its public path and nothing else is in scope, so
   # anything it needs and does not include is a diagnostic rather than a lucky
   # inheritance from a neighbour.
   printf '#include "%s"\n' "$relative" > "$probe"
 
-  if ! "$compiler" -std="c++${standard}" -I "$INCLUDE_DIR" \
+  if ! "$compiler" -std="c++${module_standard}" -I "$include_dir" \
     -fsyntax-only "$probe" > "$log" 2>&1; then
     violations=$((violations + 1))
-    printf '    violation: %s is not self-contained\n' "core/include/$relative"
+    printf '    violation: %s is not self-contained\n' "$module/include/$relative"
     sed 's/^/        | /' "$log" | head -5
   fi
-done <<< "$headers"
+done
 
 if [[ "$violations" -gt 0 ]]; then
   printf '\033[31m    FAILED: %d header(s) do not compile on their own.\033[0m\n' \
     "$violations" >&2
   printf '    A header must include what it uses. Compiling cleanly inside\n' >&2
-  printf '    core/src/public_headers.cpp proves only that some earlier\n' >&2
+  printf '    the public_headers.cpp of a module proves only that some earlier\n' >&2
   printf '    #include happened to supply the missing declaration.\n' >&2
   exit 1
 fi
 
 printf '\033[32m    ok: %s public header(s) compile on their own\033[0m\n' \
-  "$(printf '%s\n' "$headers" | wc -l | tr -d ' ')"
+  "${#entries[@]}"

@@ -61,6 +61,9 @@ Install them.
 core/                 Hardware-independent domain logic. No hardware headers. Ever.
   include/pigeon/core/  Public headers
   src/                  Implementation
+protocol/             The device wire codec shared by the Pi and the Arduino. Header-only.
+  include/pigeon/protocol/  Public headers
+  src/                  A compile check of the headers only
 raspberry/            Raspberry Pi integration (future). Camera, serial host side.
 arduino/              Arduino firmware (future). Servos, water actuator.
 tests/                GoogleTest suites, mirroring the source tree.
@@ -82,10 +85,12 @@ The dependency direction is strict and one-way:
 
 ```text
 raspberry/ ──▶ core/ ◀── tests/
-arduino/   (separate firmware target)
+raspberry/ ──▶ protocol/ ◀── tests/
+arduino/   ──▶ protocol/   (separate firmware target)
 ```
 
-`core/` depends on nothing but the C++ standard library.
+`core/` and `protocol/` depend on nothing but the C++ standard library, and
+`core/` does not depend on `protocol/`.
 
 ## Definition of Done
 
@@ -175,7 +180,7 @@ Refs: REQ-TRK-002, REQ-TRK-003
 ```
 
 Types: `feat`, `fix`, `test`, `docs`, `refactor`, `build`, `ci`, `chore`.
-Scopes: `core`, `raspberry`, `arduino`, `tests`, `docs`, `ci`, `agents`.
+Scopes: `core`, `protocol`, `raspberry`, `arduino`, `tests`, `docs`, `ci`, `agents`.
 
 Every PR description must contain:
 

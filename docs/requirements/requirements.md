@@ -535,15 +535,22 @@ key/value format needs no third-party parser, which matters on a 1 GB target.
   distinguishes acceptance from refusal, and the device emits a periodic
   heartbeat so that silence is detectable as a fault (`REQ-COM-003`).
 
-**Blocked on work not yet done.** The protocol has not been designed. `core/`
-deliberately models the device boundary as *operations* — `ActuatorLink` — and
-not as an encoding (ADR-0007), so there is nothing in `core/` a test could
-assert against without inventing an API. This requirement will therefore be
-reported `UNVERIFIED` by `scripts/trace.sh` until the wire protocol is
-specified in `docs/architecture/` and implemented in `raspberry/` and
-`arduino/`. That is outstanding work with a known owner, not a missing test:
-recorded here so the permanent `UNVERIFIED` line is explained rather than
-mysterious.
+**Status of the work.** The protocol is specified
+(`docs/architecture/device-protocol.md`, ADR-0021) and its codec is built and
+tested in `protocol/`, with no serial device: CRC-16, COBS, the messages, the
+receiving steps and the byte-at-a-time framer, reproducing the specification's
+normative vectors, rejecting malformed input at every step, and clean under the
+sanitizers. `core/` models the device boundary as *operations*, not as an
+encoding (ADR-0007), so these tests live in `tests/protocol/` and not against
+`core/`. `scripts/trace.sh` therefore reports this requirement as cited.
+
+That is what its acceptance criteria ask, and it is not the whole of the work on
+the device link. Not yet built: the host's use of the codec behind
+`ActuatorLink` (matching replies to commands, deriving `health()` from the
+heartbeat), the serial port, and the firmware that enforces the device's own
+limits (ADR-0021, follow-ups 2 to 4). Those are where `REQ-COM-002`,
+`REQ-COM-003` and the device half of `REQ-AIM-002`, `REQ-SAF-001` and
+`REQ-SAF-005` meet real hardware, and they are tracked there.
 
 ### REQ-COM-002 — Fail-safe on communication loss
 
@@ -883,6 +890,10 @@ is a reference. Defaults are the values the system ships with.
 | Camera capture resolution  | 640 × 480      | `REQ-DET-004` (Q24) |
 | Frame pixel format         | RGB888, not configurable | `REQ-DET-004` |
 | Track retention            | none; discarded on a missed frame | `REQ-TRK-009` |
+| Device heartbeat interval  | 500 ms         | `REQ-COM-001` (ADR-0021) |
+| Link silence timeout       | 1.5 s          | `REQ-COM-001`, `REQ-COM-003` (ADR-0021) |
+| Command reply timeout      | 100 ms         | `REQ-COM-001` (ADR-0021) |
+| Serial line setting        | 115200 baud, 8N1 | deployment setting of the transport, not of the protocol (ADR-0021) |
 
 *uncalibrated* means the value is a property of the physical rig and is
 recorded during bring-up. Until then the empty default envelope prevents
@@ -928,7 +939,9 @@ evidence that writing the tests first does the job it is there to do. Q20 to
 Q24 were raised by the **architect**, before and while choosing a detection
 library (ADR-0019), and answered by the maintainer directly on 2026-10-04.
 Q25 was raised by the **test-engineer** while encoding ADR-0019 as executable
-tests, and answered by the maintainer on 2026-10-05.
+tests, and answered by the maintainer on 2026-10-05. Q26 was raised by the
+**architect** while specifying the device protocol (ADR-0021) and answered by
+the maintainer on 2026-11-26.
 
 | #  | Question                                          | Resolution                                                                 |
 | -- | ------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -957,6 +970,7 @@ tests, and answered by the maintainer on 2026-10-05.
 | Q23 | Whether any bird is an acceptable target         | **Yes**, any bird is an acceptable target for now. Maintainer ruling, 2026-10-04: the COCO `bird` proxy class is accepted and pigeon-only fine-tuning is not required. ADR-0019 |
 | Q24 | Camera capture resolution                        | **640 × 480**. Maintainer ruling, 2026-10-04. A deployment value, listed under Configured parameters; distinct from the model's own input size. `REQ-DET-004`, ADR-0019 |
 | Q25 | Inference thread count of zero or less        | **Clamped to one thread.** Maintainer ruling, 2026-10-05: a `num_threads <= 0` in `NcnnDetectorSettings` is treated as 1; it is not a load failure and adds no `ModelLoadStatus`. ADR-0019. |
+| Q26 | What the Arduino does with an aiming command whose angle lies outside its own envelope | **Refuse.** Maintainer ruling, 2026-11-26: it replies `REJECTED_ANGLE` and the servos do not move; it does not clamp and move. Fails closed, and gives `LinkStatus::REJECTED` a cause that can occur. `REQ-AIM-002`, ADR-0021, `device-protocol.md` section 5.1 |
 
 ### Corrections
 

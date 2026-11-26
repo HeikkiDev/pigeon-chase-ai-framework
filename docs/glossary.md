@@ -34,6 +34,9 @@ Ambiguous terminology is one of the main causes of agent drift.
 | **Refusal reason**     | The named cause of a refused burst. Each `LinkStatus` other than `OK` has its own, shared with no other status, so a refusal is diagnosable (`REQ-SAF-008`, ADR-0015). |
 | **Link health**        | The link's condition right now, reported as a `LinkStatus` without sending anything. Queried by the safety policy at the moment of a fire decision, never remembered by the caller (`REQ-COM-003`, ADR-0016). |
 | **Heartbeat**          | The periodic message by which the actuator device shows it is still there, so that link health can degrade without a command being sent to discover the fault (`REQ-COM-001`, `REQ-COM-003`). |
+| **Message**            | One unit on the device wire: a command, a reply or a heartbeat, COBS-encoded with a CRC and a `0x00` delimiter (`REQ-COM-001`). Not a camera *frame*; the two words must not be mixed. |
+| **Exchange**           | One command and its reply, run one at a time and never retransmitted (`docs/architecture/device-protocol.md`, section 6). |
+| **Link silence timeout** | How long the host goes without a valid device message before the link is `UNAVAILABLE`: 1.5 s, three heartbeat intervals (`REQ-COM-003`, ADR-0021). |
 | **Rate window**        | The one-minute span against which the six-burst limit is counted. Half-open: a burst exactly one minute old has left it (`REQ-SAF-005`, ADR-0014). |
 | **Actuator link**      | The seam between `core/` and the actuator system. Failure is a returned status, never an exception (`REQ-COM-002`). |
 | **Monotonic clock**    | The injected, never-decreasing time source. The only way `core/` learns the time, and used only for the cool-down and rate limit (ADR-0005). |
