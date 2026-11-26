@@ -85,6 +85,23 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   /// Answer with this raw result byte instead of `ACCEPTED`.
   void answer_with_result(std::uint8_t result) noexcept { result_ = result; }
 
+  /// Put a well-formed `HEARTBEAT` on the line now, as the device's own timer
+  /// would. The test decides when; the device keeps no schedule of its own.
+  void emit_heartbeat(std::uint8_t flags = 0) {
+    std::array<std::uint8_t, pigeon::protocol::max_wire_message_bytes> wire{};
+    const auto length = pigeon::protocol::encode_heartbeat(
+        heartbeat_seq_++, pigeon::protocol::HeartbeatPayload{flags},
+        pigeon::protocol::MutableBytes{wire.data(), wire.size()});
+    emit_raw(std::span<const std::uint8_t>{wire.data(), length});
+  }
+
+  /// Put these exact bytes on the line, damaged or not.
+  void emit_raw(std::span<const std::uint8_t> bytes) {
+    for (const std::uint8_t byte : bytes) {
+      outbox_.push_back(byte);
+    }
+  }
+
   // --- what a test can observe --------------------------------------------
 
   [[nodiscard]] const std::vector<Command>& commands() const noexcept { return commands_; }
@@ -118,6 +135,7 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   std::deque<std::uint8_t> outbox_;
   std::vector<Command> commands_;
   std::size_t write_calls_{0};
+  std::uint8_t heartbeat_seq_{0};
   bool open_{true};
   bool fail_writes_{false};
   bool silent_{false};

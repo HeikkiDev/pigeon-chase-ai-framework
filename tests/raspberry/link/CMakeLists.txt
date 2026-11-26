@@ -15,7 +15,15 @@ pigeon_add_test(serial_actuator_link_safe_state_test
   LIBS pigeon::raspberry_link
 )
 
-foreach(target serial_actuator_link_health_test serial_actuator_link_safe_state_test)
+pigeon_add_test(serial_actuator_link_liveness_test
+  SOURCES serial_actuator_link_liveness_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+foreach(target
+    serial_actuator_link_health_test
+    serial_actuator_link_safe_state_test
+    serial_actuator_link_liveness_test)
   target_include_directories(${target}
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}
