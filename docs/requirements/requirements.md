@@ -549,9 +549,12 @@ the device link. The host side behind `ActuatorLink` is also built and tested
 against a simulated device that speaks the real codec, with no serial port
 (`SerialActuatorLink` in `raspberry/link/`, ADR-0021 follow-up 2): the exchanges
 and their reply matching, `health()` derived from the heartbeat and from the
-outcome of exchanges, and the startup and shutdown sequences. Not yet built: the
-serial port itself, hardware-in-the-loop tests (`REQ-DEV-003`) and the firmware
-that enforces the device's own limits (ADR-0021, follow-ups 3 and 4). Those are
+outcome of exchanges, and the startup and shutdown sequences. The serial port is
+built as a `ByteStream` (`SerialPortStream`) and tested through a pseudo-terminal
+(Q27), not through a physical port. Not yet built: a check against a real port
+(`REQ-DEV-003`, by hand, outside the default suite), whatever drives the link's
+`poll()`, and the firmware that enforces the device's own limits (ADR-0021,
+follow-ups 3 and 4). Those are
 where `REQ-COM-002`, `REQ-COM-003` and the device half of `REQ-AIM-002`,
 `REQ-SAF-001` and `REQ-SAF-005` meet real hardware, and they are tracked there.
 
