@@ -57,7 +57,11 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
 
   [[nodiscard]] std::size_t read(std::span<std::uint8_t> out) noexcept override {
     release_due_replies();
-    const std::size_t limit = one_byte_reads_ ? std::min<std::size_t>(out.size(), 1) : out.size();
+    std::size_t limit = out.size();
+    if (trickle_) {
+      limit = std::min<std::size_t>(limit, trickle_quota_);
+      trickle_quota_ -= limit;  // spent until the link next waits
+    }
     std::size_t count = 0;
     while (count < limit && !outbox_.empty()) {
       out[count++] = outbox_.front();
@@ -80,6 +84,7 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   }
 
   void wait_readable(std::chrono::milliseconds max) noexcept override {
+    trickle_quota_ = 1;
     release_due_replies();
     if (!outbox_.empty()) {
       return;
@@ -114,8 +119,12 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   /// Hold every reply back for this long after its command arrived, as a slow
   /// line or a busy device would. The reply is released while the link waits.
   void delay_replies(std::chrono::milliseconds delay) noexcept { reply_delay_ = delay; }
-  /// Hand the link one byte per `read`, so that a message arrives in pieces.
-  void deliver_one_byte_per_read() noexcept { one_byte_reads_ = true; }
+  /// Let the link read one byte per wait, so that a message arrives in pieces
+  /// spread over several polls, not all at once.
+  void trickle_bytes() noexcept {
+    trickle_ = true;
+    trickle_quota_ = 1;
+  }
   /// Put a well-formed `REPLY` on the line now, whether or not anything is
   /// waiting for it: a late reply, or one for a command the host gave up on.
   void emit_reply(std::uint8_t seq, std::uint8_t command_type, std::uint8_t result) {
@@ -199,7 +208,10 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
     if (reply_delay_ > std::chrono::milliseconds{0}) {
       Delayed late{clock_.now().since_epoch + reply_delay_, {}};
       late.bytes.assign(reply.begin(), reply.end());
-      delayed_.push_back(std::move(late));
+      const auto position = std::upper_bound(
+          delayed_.begin(), delayed_.end(), late.due,
+          [](std::chrono::milliseconds due, const Delayed& other) { return due < other.due; });
+      delayed_.insert(position, std::move(late));
     } else {
       emit_raw(reply);
     }
@@ -239,7 +251,8 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   pigeon::protocol::MessageFramer framer_;
   std::deque<Delayed> delayed_;
   std::chrono::milliseconds reply_delay_{0};
-  bool one_byte_reads_{false};
+  bool trickle_{false};
+  std::size_t trickle_quota_{0};
   std::deque<std::uint8_t> outbox_;
   std::vector<Command> commands_;
   std::size_t write_calls_{0};

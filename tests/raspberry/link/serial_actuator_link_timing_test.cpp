@@ -76,6 +76,14 @@ TEST_F(Timing, ALateReplyIsUnmatchedAndChangesNeitherFaultNorRejection) {
 
   // It faulted at the deadline and is still faulted: not REJECTED, not cleared.
   EXPECT_EQ(link.health(), LinkStatus::TRANSPORT_FAILURE);
+
+  // And the refusal left nothing behind: once an exchange is answered, which
+  // clears `faulted`, health is OK. A `rejected` set by the stray reply would
+  // show here, hidden until now behind the fault.
+  device.delay_replies(milliseconds{0});
+  device.answer_with_result(0);
+  ASSERT_EQ(link.send_safe_state_command(), LinkStatus::OK);
+  EXPECT_EQ(link.health(), LinkStatus::OK);
 }
 
 TEST_F(Timing, ALateReplyStillCountsAsTheDeviceBeingThere) {
@@ -104,8 +112,8 @@ TEST_F(Timing, ALateReplyToAnAbandonedCommandDoesNotAnswerTheNextOne) {
   EXPECT_EQ(link.health(), LinkStatus::OK);  // the stale refusal set nothing
 }
 
-TEST_F(Timing, AReplyThatArrivesInPiecesIsReassembled) {
-  device.deliver_one_byte_per_read();
+TEST_F(Timing, AReplyThatArrivesInPiecesAcrossSeveralPollsIsReassembled) {
+  device.trickle_bytes();
 
   EXPECT_EQ(link.send_safe_state_command(), LinkStatus::OK);
 }
@@ -146,6 +154,20 @@ TEST_F(Timing, AnUnmatchedReplyWhateverItSaysSetsNeitherFaultNorRejection) {
 }
 
 // --- startup does not trust an old hearing ----------------------------------
+
+TEST_F(Timing, StartUpSucceedsOnceTheDeviceIsHeardAgainAfterASilence) {
+  hear_the_device();
+  for (int i = 0; i < 100; ++i) {  // ten seconds of silence, read every 100 ms
+    clock.advance_by(milliseconds{100});
+    link.poll();
+  }
+  ASSERT_EQ(link.health(), LinkStatus::UNAVAILABLE);
+
+  device.start_heartbeats(milliseconds{500});  // the device comes back
+
+  EXPECT_EQ(link.start_up(milliseconds{5000}), LinkStatus::OK);
+  EXPECT_EQ(link.health(), LinkStatus::OK);
+}
 
 TEST_F(Timing, StartUpWaitsToHearTheDeviceAgainIfItWentSilent) {
   hear_the_device();
