@@ -9,6 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <future>
 #include <memory>
 #include <optional>
@@ -102,8 +104,13 @@ TEST_F(Concurrent, HealthIsAnsweredWithoutWaitingForAnExchangeInProgress) {
 
   const bool finished = outcome.wait_for(std::chrono::seconds{5}) == std::future_status::ready;
   if (!finished) {
-    exchange.detach();  // deadlocked; the process exits with it
-    FAIL() << "health() waited for the exchange's lock";
+    // Deadlocked, and nothing can be undone from here: the stuck thread holds the
+    // lock, and tearing down the fixture would send SAFE_STATE, run the hook and
+    // block this thread on the same lock. So report and end the process now; a
+    // hang would hide the failure.
+    std::fputs("FAILED: health() waited for the exchange's lock (deadlock)\n", stderr);
+    std::fflush(stderr);
+    std::_Exit(1);
   }
   exchange.join();
 
