@@ -36,6 +36,15 @@ class Liveness : public ::testing::Test {
     device.emit_heartbeat();
     link.poll();
   }
+
+  /// Let time pass the way a running host does: its reader takes the line at
+  /// least every 100 ms (section 7), so no step is longer than that.
+  void idle_for(milliseconds total) {
+    for (milliseconds done{0}; done < total; done += milliseconds{100}) {
+      clock.advance_by(milliseconds{100});
+      link.poll();
+    }
+  }
 };
 
 TEST_F(Liveness, AHeartbeatTheHostHasReadMakesTheLinkOk) {
@@ -62,13 +71,13 @@ TEST_F(Liveness, SilenceForTheTimeoutMakesTheLinkUnavailableAndNotBefore) {
 
 TEST_F(Liveness, EachHeartbeatRestartsTheSilence) {
   hear_a_heartbeat();
-  clock.advance_by(milliseconds{1000});
+  idle_for(milliseconds{1000});
   hear_a_heartbeat();
 
-  clock.advance_by(milliseconds{1000});
+  idle_for(milliseconds{1000});
   EXPECT_EQ(link.health(), LinkStatus::OK);
 
-  clock.advance_by(milliseconds{500});
+  idle_for(milliseconds{500});
   EXPECT_EQ(link.health(), LinkStatus::UNAVAILABLE);
 }
 
