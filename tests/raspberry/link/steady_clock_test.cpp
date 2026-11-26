@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <type_traits>
 
 #include "pigeon/core/clock.hpp"
@@ -41,6 +42,22 @@ TEST(SteadyClock, NeverGoesBackwards) {
     ASSERT_GE(current, previous) << "after " << i << " readings";
     previous = current;
   }
+}
+
+TEST(SteadyClock, MovesForward) {
+  // A clock stuck at one value never goes backwards either, so that alone proves
+  // too little. This reads until the value changes. How long that takes is not
+  // asserted; the bound only stops a stuck clock from hanging the suite.
+  const SteadyClock clock;
+  const MonotonicTimePoint start = clock.now();
+  const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+
+  MonotonicTimePoint latest = start;
+  while (latest == start && std::chrono::steady_clock::now() < give_up) {
+    latest = clock.now();
+  }
+
+  EXPECT_GT(latest, start);
 }
 
 TEST(SteadyClock, TwoClocksShareOneTimeline) {
