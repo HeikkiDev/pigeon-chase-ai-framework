@@ -93,6 +93,38 @@ missing_tool() {
   warn "$name not found - step skipped. Install it with: brew install llvm"
 }
 
+# The tool versions this repository is checked with (ADR-0022). Different major
+# versions of clang-format and clang-tidy disagree about valid code, so a gate that
+# passed locally failed in CI until the versions were fixed in one place.
+PIN_FILE="$REPO_ROOT/scripts/lint-tools.txt"
+
+# check_tool_version <name> <path> — compares the tool's version with the pin. A
+# difference is a warning, and a failure under PIGEON_STRICT_TOOLS=1, which CI
+# sets, so CI can never silently run a tool it was not meant to.
+check_tool_version() {
+  local name="$1"
+  local path="$2"
+  local want have message
+
+  if [[ ! -f "$PIN_FILE" ]]; then
+    warn "scripts/lint-tools.txt is missing - the $name version is not checked"
+    return 0
+  fi
+  want="$(sed -n "s/^${name}==\(.*\)\$/\1/p" "$PIN_FILE")"
+  [[ -n "$want" ]] || return 0
+
+  # Whatever precedes "version" differs (Homebrew, Ubuntu, "LLVM"); the number
+  # after it is what is being compared.
+  have="$("$path" --version 2>&1 | grep -m1 -o 'version [0-9][0-9.]*' | awk '{print $2}')"
+  if [[ "$have" != "$want" ]]; then
+    message="$name is ${have:-of an unknown version} but this repository pins $want (scripts/lint-tools.txt). Install it with: pip install -r scripts/lint-tools.txt"
+    if [[ "$STRICT_TOOLS" == "1" ]]; then
+      fail "$message"
+    fi
+    warn "$message"
+  fi
+}
+
 # Source files owned by this project (excludes build output and dependencies).
 # --others --exclude-standard also covers files that are not yet committed, so
 # a new file cannot slip through the gate unformatted.
@@ -125,6 +157,7 @@ read_into_array() {
 if [[ "$SKIP_FORMAT" == "0" ]]; then
   step "Checking formatting"
   if CLANG_FORMAT="$(find_tool clang-format)"; then
+    check_tool_version clang-format "$CLANG_FORMAT"
     read_into_array < <(project_sources)
     files=("${read_result[@]:-}")
     if [[ -z "${files[0]:-}" ]]; then
@@ -237,6 +270,7 @@ fi
 if [[ "$SKIP_TIDY" == "0" ]]; then
   step "Running clang-tidy"
   if CLANG_TIDY="$(find_tool clang-tidy)"; then
+    check_tool_version clang-tidy "$CLANG_TIDY"
     if [[ ! -f "$BUILD_DIR/compile_commands.json" ]]; then
       fail "compile_commands.json missing in $BUILD_DIR"
     fi
