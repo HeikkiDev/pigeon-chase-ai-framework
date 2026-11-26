@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 
 #include "pigeon/protocol/bytes.hpp"
@@ -39,20 +40,64 @@ LinkStatus status_for(std::uint8_t result) noexcept {
   return LinkStatus::TRANSPORT_FAILURE;
 }
 
+/// An angle in hundredths of a degree, rounded towards zero (section 3.2).
+///
+/// The host clamps to its envelope first, so an angle that cannot be represented
+/// does not arise in an engagement. If one does arrive (not a number, or beyond
+/// 327 degrees) it is sent as the nearest value that cannot be represented,
+/// which lies outside the device's envelope, so the device refuses it: failing
+/// closed rather than guessing a position.
+std::int16_t centidegrees(double degrees) noexcept {
+  const double scaled = degrees * 100.0;
+  if (!(scaled > -32768.0)) {  // also true for NaN
+    return std::numeric_limits<std::int16_t>::min();
+  }
+  if (scaled >= 32767.0) {
+    return std::numeric_limits<std::int16_t>::max();
+  }
+  return static_cast<std::int16_t>(scaled);  // truncates towards zero
+}
+
+/// A burst length in milliseconds. One that cannot be represented, or is
+/// negative, becomes the largest value, which is over the device's bound and
+/// is refused: a duration is never silently shortened into one the device would
+/// obey.
+std::uint16_t duration_ms(std::chrono::milliseconds duration) noexcept {
+  constexpr auto largest = std::numeric_limits<std::uint16_t>::max();
+  if (duration.count() < 0 || duration.count() > largest) {
+    return largest;
+  }
+  return static_cast<std::uint16_t>(duration.count());
+}
+
 }  // namespace
 
 SerialActuatorLink::SerialActuatorLink(ByteStream& line, const pigeon::core::MonotonicClock& clock,
                                        LinkTimings timings)
     : line_{line}, clock_{clock}, timings_{timings}, last_poll_{clock.now().since_epoch} {}
 
-// Not built yet: refuse, so that nothing can be fired through a link that does
-// not exist. Replaced test-first by the exchanges of section 6.
-LinkStatus SerialActuatorLink::send_aiming_command(const pigeon::core::AimingCommand& /*command*/) {
-  return LinkStatus::UNAVAILABLE;
+LinkStatus SerialActuatorLink::send_aiming_command(const pigeon::core::AimingCommand& command) {
+  const std::uint8_t seq = next_seq_++;
+  pigeon::protocol::AimPayload payload;
+  payload.x_centidegrees = centidegrees(command.angles.x.degrees);
+  payload.y_centidegrees = centidegrees(command.angles.y.degrees);
+  std::array<std::uint8_t, pigeon::protocol::max_wire_message_bytes> wire{};
+  const std::size_t length =
+      pigeon::protocol::encode_aim(seq, payload, MutableBytes{wire.data(), wire.size()});
+  return exchange(MessageType::AIM, seq, std::span<const std::uint8_t>{wire.data(), length});
 }
 
-LinkStatus SerialActuatorLink::send_fire_command(const pigeon::core::FireCommand& /*command*/) {
-  return LinkStatus::UNAVAILABLE;
+LinkStatus SerialActuatorLink::send_fire_command(const pigeon::core::FireCommand& command) {
+  const std::uint8_t seq = next_seq_++;
+  std::array<std::uint8_t, pigeon::protocol::max_wire_message_bytes> wire{};
+  // Transmitted whenever the line is open, whatever health() says: deciding not
+  // to fire on poor health is core's job (REQ-SAF-008), and a link that
+  // second-guessed it would make "transmitted", which REQ-SAF-007 counts, depend
+  // on state the caller cannot see (section 6.1).
+  const std::size_t length = pigeon::protocol::encode_fire(
+      seq, pigeon::protocol::FirePayload{duration_ms(command.duration)},
+      MutableBytes{wire.data(), wire.size()});
+  return exchange(MessageType::FIRE, seq, std::span<const std::uint8_t>{wire.data(), length});
 }
 
 LinkStatus SerialActuatorLink::send_safe_state_command() {
@@ -99,6 +144,16 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
   // Any answer, even a refusal, shows commands are being answered; a fault does
   // not (section 7).
   faulted_ = (outcome == LinkStatus::TRANSPORT_FAILURE);
+  // Only AIM and FIRE speak for the device's limits. SAFE_STATE is always
+  // accepted by a working device and is sent whenever an engagement is
+  // abandoned, so counting it would erase every rejection the moment it was made.
+  if (type == MessageType::AIM || type == MessageType::FIRE) {
+    if (outcome == LinkStatus::OK) {
+      rejected_ = false;
+    } else if (outcome == LinkStatus::REJECTED) {
+      rejected_ = true;
+    }
+  }
   return outcome;
 }
 
@@ -157,6 +212,9 @@ LinkStatus SerialActuatorLink::health() const noexcept {
   }
   if (faulted_) {
     return LinkStatus::TRANSPORT_FAILURE;
+  }
+  if (rejected_) {
+    return LinkStatus::REJECTED;
   }
   return LinkStatus::OK;
 }
