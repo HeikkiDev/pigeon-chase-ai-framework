@@ -113,6 +113,9 @@ TEST_F(Concurrent, HealthIsAnsweredWithoutWaitingForAnExchangeInProgress) {
     std::_Exit(1);
   }
   exchange.join();
+  // The hook refers to this test's locals, and the fixture's teardown sends
+  // SAFE_STATE, which would run it after they are gone.
+  device.on_command({});
 
   EXPECT_EQ(outcome.get(), LinkStatus::OK);
   ASSERT_TRUE(asked_mid_exchange.has_value());
