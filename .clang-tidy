@@ -13,7 +13,7 @@ Checks: >
   -readability-identifier-length
 
 WarningsAsErrors: '*'
-HeaderFilterRegex: '(core|raspberry|arduino)/.*\.(hpp|h)$'
+HeaderFilterRegex: '(core|protocol|raspberry|arduino)/.*\.(hpp|h)$'
 FormatStyle: file
 
 CheckOptions:
