@@ -102,8 +102,8 @@ void SerialActuatorLink::poll() noexcept {
     if (count == 0) {
       return;
     }
-    for (std::size_t i = 0; i < count; ++i) {
-      if (framer_.push(chunk[i]) == FramerEvent::MESSAGE) {
+    for (const std::uint8_t byte : std::span<const std::uint8_t>{chunk}.first(count)) {
+      if (framer_.push(byte) == FramerEvent::MESSAGE) {
         on_message(framer_.message());
       }
     }
