@@ -551,7 +551,8 @@ against a simulated device that speaks the real codec, with no serial port
 and their reply matching, `health()` derived from the heartbeat and from the
 outcome of exchanges, and the startup and shutdown sequences. The serial port is
 built as a `ByteStream` (`SerialPortStream`) and tested through a pseudo-terminal
-(Q27), not through a physical port. Not yet built: a check against a real port
+(Q27), not through a physical port. The device's clock is `SteadyClock`.
+Not yet built: a check against a real port
 (`REQ-DEV-003`, by hand, outside the default suite), whatever drives the link's
 `poll()`, and the firmware that enforces the device's own limits (ADR-0021,
 follow-ups 3 and 4). Those are
