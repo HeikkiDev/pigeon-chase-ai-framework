@@ -1,0 +1,14 @@
+# The clang-format and clang-tidy versions this repository is checked with
+# (ADR-0022). One exact version each, in pip requirements syntax, so CI installs
+# them with `pip install -r scripts/lint-tools.txt` and so does anyone who wants
+# the gate to agree with CI:
+#
+#   python3 -m venv ~/.venvs/pigeon-lint
+#   ~/.venvs/pigeon-lint/bin/pip install -r scripts/lint-tools.txt
+#   export PATH="$HOME/.venvs/pigeon-lint/bin:$PATH"
+#
+# scripts/check.sh reads this file. A different version is a warning, and a
+# failure under PIGEON_STRICT_TOOLS=1. To change a version, change it here, run
+# `scripts/check.sh --fix`, and commit the reformatting with it.
+clang-format==23.1.5
+clang-tidy==23.1.4
