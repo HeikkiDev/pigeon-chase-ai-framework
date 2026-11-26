@@ -112,7 +112,7 @@ TEST_F(Shutdown, DestroyingTheLinkPutsTheActuatorInItsSafeState) {
 TEST_F(Shutdown, ItIsAttemptedEvenIfTheDeviceWasNeverHeard) {
   // SAFE_STATE is attempted whenever the line is open: it is the operation that
   // must work when nothing else does (section 6.1).
-  { const SerialActuatorLink link{device, clock}; }
+  std::make_unique<SerialActuatorLink>(device, clock).reset();  // destroyed here
 
   EXPECT_EQ(device.commands().size(), 1U);
 }
@@ -120,7 +120,7 @@ TEST_F(Shutdown, ItIsAttemptedEvenIfTheDeviceWasNeverHeard) {
 TEST_F(Shutdown, NothingIsSentOnALineThatIsNotOpen) {
   device.close();
 
-  { const SerialActuatorLink link{device, clock}; }
+  std::make_unique<SerialActuatorLink>(device, clock).reset();  // destroyed here
 
   EXPECT_EQ(device.write_calls(), 0U);
 }
@@ -128,7 +128,7 @@ TEST_F(Shutdown, NothingIsSentOnALineThatIsNotOpen) {
 TEST_F(Shutdown, ADeviceThatNeverAnswersCostsAtMostTheReplyTimeout) {
   device.stay_silent();
 
-  { const SerialActuatorLink link{device, clock}; }
+  std::make_unique<SerialActuatorLink>(device, clock).reset();  // destroyed here
 
   EXPECT_EQ(clock.now().since_epoch, milliseconds{100});
   EXPECT_EQ(device.commands().size(), 1U);  // and it was not retransmitted
