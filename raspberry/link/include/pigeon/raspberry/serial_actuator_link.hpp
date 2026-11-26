@@ -42,6 +42,12 @@ struct LinkTimings {
 /// that every timing in the specification can be crossed in a test without
 /// waiting (`REQ-DEV-002`).
 ///
+/// **Not thread-safe.** `poll`, the `send_*` calls and `health()` share state with
+/// no synchronisation, so they must be called from one thread, or serialised by
+/// the owner. The caller must also `poll()` at least every reader period (100 ms)
+/// between commands; nothing here calls it on a timer. Both are the business of
+/// whatever drives the link once a real serial port exists (ADR-0021, follow-up 3).
+///
 /// **Complete for the host side of the exchanges and of `health()`**
 /// (`device-protocol.md` sections 6 to 8). Not yet built: the startup sequence
 /// of the serial port itself.
@@ -73,7 +79,7 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
   ///
   /// Gives up at `max_wait` after the call. Returns `OK` once a `SAFE_STATE` is
   /// accepted; `UNAVAILABLE` if the line is not open or the device was never
-  /// heard, in which case **nothing was transmitted**; otherwise the outcome of
+  /// heard, in which case **nothing was transmitted by this call**; otherwise the outcome of
   /// the last attempt. How long to wait is the caller's decision: the
   /// specification repeats "until one is accepted" and fixes no limit.
   [[nodiscard]] pigeon::core::LinkStatus start_up(std::chrono::milliseconds max_wait);
