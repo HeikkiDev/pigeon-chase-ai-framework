@@ -18,3 +18,8 @@ pigeon_add_test(protocol_cobs_test
   SOURCES cobs_test.cpp
   LIBS pigeon::protocol
 )
+
+pigeon_add_test(protocol_message_test
+  SOURCES message_test.cpp
+  LIBS pigeon::protocol
+)

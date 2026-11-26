@@ -18,6 +18,7 @@
 namespace {
 
 using pigeon::protocol::ByteView;
+using pigeon::protocol::FixedBuffer;
 using pigeon::protocol::MutableBytes;
 
 constexpr std::size_t largest_index = std::numeric_limits<std::size_t>::max();
@@ -137,6 +138,34 @@ TEST(MutableBytes, ViewsItsWrittenPrefixReadOnly) {
   EXPECT_EQ(prefix.at(0), 9);
   EXPECT_EQ(prefix.at(1), 8);
   EXPECT_EQ(out.view(100).size(), 4U);
+}
+
+// Verifies: REQ-COM-001 — a fixed buffer owns exactly the storage it names, starts
+// zeroed, and can be written and read back through the same views, so an encoder
+// has somewhere to build a message without allocating.
+TEST(FixedBuffer, OwnsItsStorageStartsZeroedAndIsWritableThroughAView) {
+  FixedBuffer<4> buffer;
+
+  EXPECT_EQ(buffer.writable().size(), 4U);
+  EXPECT_EQ(buffer.view(4).at(0), 0);
+  EXPECT_EQ(buffer.view(4).at(3), 0);
+
+  MutableBytes writable = buffer.writable();
+  EXPECT_TRUE(writable.set(0, 0x7E));
+  EXPECT_TRUE(writable.set(3, 0x7F));
+  EXPECT_FALSE(writable.set(4, 0x01));
+
+  EXPECT_EQ(buffer.view(4).at(0), 0x7E);
+  EXPECT_EQ(buffer.view(4).at(3), 0x7F);
+}
+
+// Verifies: REQ-COM-001 — a view of a fixed buffer is clipped to its capacity.
+TEST(FixedBuffer, ClipsAViewToItsCapacity) {
+  const FixedBuffer<3> buffer;
+
+  EXPECT_EQ(buffer.view(2).size(), 2U);
+  EXPECT_EQ(buffer.view(3).size(), 3U);
+  EXPECT_EQ(buffer.view(100).size(), 3U);
 }
 
 }  // namespace
