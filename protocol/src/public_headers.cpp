@@ -11,4 +11,5 @@
 #include "pigeon/protocol/bytes.hpp"
 #include "pigeon/protocol/cobs.hpp"
 #include "pigeon/protocol/crc16.hpp"
+#include "pigeon/protocol/framer.hpp"
 #include "pigeon/protocol/message.hpp"
