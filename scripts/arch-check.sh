@@ -192,14 +192,38 @@ check_protocol_constructs() {
       report "'${entry#*:}' is not allowed in protocol/: no allocation, exceptions, virtual functions or RTTI (ADR-0021): ${file#"$ROOT"/}:${entry%%:*}"
     done < <(awk '
       {
-        code = $0
-        if (in_block) {
-          if (sub(/^.*\*\//, "", code)) { in_block = 0 } else { code = "" }
+        # Walk the line one character at a time, keeping the state of a block
+        # comment across lines. A regular expression cannot tell a star inside a
+        # comment from the end of one, and a mistake here does not misreport one
+        # line: it blinds the gate to the rest of the file. "\047" is a single
+        # quote, which cannot appear inside this single-quoted script.
+        code = ""
+        n = length($0)
+        i = 1
+        while (i <= n) {
+          two = substr($0, i, 2)
+          one = substr($0, i, 1)
+          if (in_block) {
+            if (two == "*/") { in_block = 0; i += 2 } else { i += 1 }
+            continue
+          }
+          if (two == "/*") { in_block = 1; code = code " "; i += 2; continue }
+          if (two == "//") { break }
+          if (one == "\"" || one == "\047") {
+            quote = one
+            i += 1
+            while (i <= n) {
+              ch = substr($0, i, 1)
+              if (ch == "\\") { i += 2; continue }
+              i += 1
+              if (ch == quote) { break }
+            }
+            code = code quote quote
+            continue
+          }
+          code = code one
+          i += 1
         }
-        gsub(/"[^"]*"/, "\"\"", code)
-        gsub(/\/\*[^*]*\*\//, " ", code)
-        if (sub(/\/\*.*$/, " ", code)) { in_block = 1 }
-        sub(/\/\/.*$/, "", code)
         gsub(/=[[:space:]]*delete/, "", code)
         if (match(code, /(^|[^[:alnum:]_])(new|delete|throw|try|catch|virtual|dynamic_cast|typeid)([^[:alnum:]_]|$)/)) {
           word = substr(code, RSTART, RLENGTH)
