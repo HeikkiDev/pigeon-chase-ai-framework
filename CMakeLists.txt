@@ -36,6 +36,10 @@ endif()
 add_subdirectory(core)
 add_subdirectory(protocol)
 
+# The host side of the device protocol. It needs no ncnn, so it sits outside the
+# gate below and is built on every machine (ADR-0021).
+add_subdirectory(raspberry/link)
+
 # The model runtime (ADR-0019). ncnn is optional locally and mandatory in CI,
 # by the same PIGEON_STRICT_TOOLS precedent scripts/check.sh uses for
 # clang-format and clang-tidy:
