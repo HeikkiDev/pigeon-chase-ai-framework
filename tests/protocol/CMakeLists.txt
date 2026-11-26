@@ -13,3 +13,8 @@ pigeon_add_test(protocol_crc16_test
   SOURCES crc16_test.cpp
   LIBS pigeon::protocol
 )
+
+pigeon_add_test(protocol_cobs_test
+  SOURCES cobs_test.cpp
+  LIBS pigeon::protocol
+)
