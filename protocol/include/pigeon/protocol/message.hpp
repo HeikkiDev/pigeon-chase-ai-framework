@@ -90,7 +90,16 @@ struct FirePayload {
 /// `REPLY`: which command it answers and what became of it. Both are kept as the
 /// raw bytes received, so that a result outside `ResultCode` — which the host
 /// must treat as a fault, not as something to guess at — is representable.
+///
+/// A payload that was never filled in carries `no_result`, which is outside the
+/// defined codes, and **not** zero: zero is `ACCEPTED`, so a default of zero would
+/// make a discarded or unsupported message read as an accepted command to a host
+/// that forgot to check the status first.
 struct ReplyPayload {
+  /// "No result": a value outside every `ResultCode`, which a host treats as a
+  /// fault. What an unfilled payload holds.
+  static constexpr std::uint8_t no_result = 0xFF;
+
   constexpr ReplyPayload() noexcept = default;
   /// The raw form, for relaying a type byte that is not a `MessageType` (a device
   /// answering a message it could not interpret echoes whatever type it carried)
@@ -103,7 +112,7 @@ struct ReplyPayload {
       : command_type(to_byte(command)), result(to_byte(outcome)) {}
 
   std::uint8_t command_type{0};
-  std::uint8_t result{0};
+  std::uint8_t result{no_result};
 };
 
 /// `HEARTBEAT`: the device's flags. Bits other than those named here are
@@ -111,6 +120,10 @@ struct ReplyPayload {
 struct HeartbeatPayload {
   /// Bit 0: the water actuator is active now.
   static constexpr std::uint8_t actuator_active = 0x01;
+
+  /// The bits that mean something. The others are reserved, and an encoder sends
+  /// them as zero whatever it is given (`device-protocol.md`, section 4.2).
+  static constexpr std::uint8_t defined_flags = actuator_active;
 
   constexpr HeartbeatPayload() noexcept = default;
   explicit constexpr HeartbeatPayload(std::uint8_t device_flags) noexcept : flags(device_flags) {}
@@ -211,7 +224,9 @@ class BodyBuilder {
                                                      const HeartbeatPayload& heartbeat,
                                                      MutableBytes out) noexcept {
   detail::BodyBuilder body{MessageType::HEARTBEAT, seq};
-  body.put(heartbeat.flags);
+  const std::uint32_t flags = heartbeat.flags;
+  const std::uint32_t defined = HeartbeatPayload::defined_flags;
+  body.put(static_cast<std::uint8_t>(flags & defined));
   return body.finish(out);
 }
 
@@ -241,6 +256,10 @@ enum class ReceiveStatus : std::uint8_t {
 
 /// Whether a device answers a message with `REJECTED_UNSUPPORTED` (steps 3 to
 /// 5). Steps 1 and 2 are answered with nothing.
+///
+/// Only a *device* answers. A host never replies to anything, and a message it
+/// finds unsupported is not a valid device message: it is no evidence that the
+/// device is alive, however good its CRC (`device-protocol.md`, sections 5 and 7).
 [[nodiscard]] constexpr bool is_unsupported(ReceiveStatus status) noexcept {
   return status == ReceiveStatus::UNSUPPORTED_VERSION ||
          status == ReceiveStatus::UNSUPPORTED_TYPE || status == ReceiveStatus::UNSUPPORTED_LENGTH;
@@ -254,7 +273,10 @@ enum class ReceiveStatus : std::uint8_t {
 /// meaningless for `DISCARDED_*`: a message that failed its check has no
 /// trustworthy fields.
 ///
-/// Only the payload member that `type` names is set, and only for `VALID`.
+/// Only the payload member that `type` names is set, and only for `VALID`. Every
+/// other member holds a default, so reading one without checking `status` first
+/// is a bug: the defaults are chosen so that it fails safe (a reply's `result` is
+/// `ReplyPayload::no_result`, not `ACCEPTED`), but the right habit is to check.
 struct Received {
   ReceiveStatus status{ReceiveStatus::DISCARDED_FRAMING};
   std::uint8_t version{0};

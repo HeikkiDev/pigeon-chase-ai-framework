@@ -71,7 +71,9 @@ class MessageFramer {
 
   /// The message that the last `push` completed, when it returned `MESSAGE`.
   /// Empty at every other time: a half-received message is never exposed. The
-  /// view is valid until the next `push` or `reset`.
+  /// view points into the framer, so it is valid until the next `push` or
+  /// `reset` and no longer than the framer itself: use the message, or copy it,
+  /// before feeding the next byte, and do not move the framer while holding it.
   [[nodiscard]] constexpr ByteView message() const noexcept {
     return ready_ ? buffer_.view(length_) : ByteView{};
   }

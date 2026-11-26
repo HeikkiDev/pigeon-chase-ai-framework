@@ -38,6 +38,8 @@ struct CobsResult {
 /// The most bytes `cobs_encode` can produce for `input_size` bytes of input:
 /// one code byte, plus one more for each full block of 254. For the protocol's
 /// messages, at most nine bytes, that is ten (`device-protocol.md`, section 3.4).
+/// Meant for message-sized inputs: it wraps for a size near the largest
+/// `std::size_t`, which is only 65535 on a 16-bit target.
 [[nodiscard]] constexpr std::size_t cobs_max_encoded_size(std::size_t input_size) noexcept {
   return input_size + (input_size / 254U) + 1U;
 }

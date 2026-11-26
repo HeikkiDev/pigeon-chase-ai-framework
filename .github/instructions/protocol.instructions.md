@@ -11,11 +11,13 @@ this module's tests reproduce them byte for byte.
 
 ## Absolute rules
 
-- **A freestanding subset of C++.** Fixed-width integers from `<cstdint>`,
-  `<cstddef>`, and nothing else from the standard library that allocates or
-  needs a runtime: no `<vector>`, `<string>`, `<memory>`, `<map>`, `<optional>`,
-  `<variant>`, `<span>`, no streams. The firmware toolchain is not chosen and
-  may be older and smaller than the host's.
+- **A freestanding subset of C++.** The only system headers are `<cstddef>`,
+  `<cstdint>`, `<climits>`, `<limits>` and `<type_traits>`, which a freestanding
+  implementation must provide; `scripts/arch-check.sh` allows nothing else and
+  rejects any include from outside `protocol/`. In particular no `<vector>`,
+  `<string>`, `<memory>`, `<map>`, `<optional>`, `<variant>`, `<span>`,
+  `<array>` or streams. The firmware toolchain is not chosen and may be older
+  and smaller than the host's.
 - **No allocation, no exceptions, no RTTI, no virtual functions.** Callers
   supply every buffer. Failure is a returned status, never a throw.
 - **C++17 constructs only.** No concepts, no `<=>`, no `std::span`, no
