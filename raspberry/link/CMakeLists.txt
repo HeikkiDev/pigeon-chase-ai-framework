@@ -6,6 +6,7 @@
 add_library(pigeon_raspberry_link
   src/concurrent_actuator_link.cpp
   src/link_health.cpp
+  src/periodic_runner.cpp
   src/public_headers.cpp
   src/serial_actuator_link.cpp
   src/serial_port_stream.cpp
@@ -17,12 +18,16 @@ target_sources(pigeon_raspberry_link
     include/pigeon/raspberry/byte_stream.hpp
     include/pigeon/raspberry/concurrent_actuator_link.hpp
     include/pigeon/raspberry/link_health.hpp
+    include/pigeon/raspberry/periodic_runner.hpp
     include/pigeon/raspberry/serial_actuator_link.hpp
     include/pigeon/raspberry/serial_port_stream.hpp
     include/pigeon/raspberry/steady_clock.hpp
 )
 
 add_library(pigeon::raspberry_link ALIAS pigeon_raspberry_link)
+
+# The reader thread of ADR-0023.
+find_package(Threads REQUIRED)
 
 target_include_directories(pigeon_raspberry_link
   PUBLIC
@@ -33,6 +38,7 @@ target_link_libraries(pigeon_raspberry_link
   PUBLIC
     pigeon::core
     pigeon::protocol
+    Threads::Threads
   PRIVATE
     pigeon::compile_options
 )

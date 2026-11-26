@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <mutex>
 
 #include "pigeon/raspberry/link_health.hpp"
@@ -15,6 +16,7 @@ ConcurrentActuatorLink::ConcurrentActuatorLink(ByteStream& line,
                                                LinkTimings timings)
     : clock_{clock},
       silence_timeout_{timings.silence_timeout},
+      reader_period_{timings.reader_period},
       link_{line, clock, timings},
       published_{pack(link_.health_state())} {}
 
@@ -51,6 +53,14 @@ LinkStatus ConcurrentActuatorLink::health() const noexcept {
   return health_from(unpack(published_.load(std::memory_order_acquire)), clock_.now().since_epoch,
                      silence_timeout_);
 }
+
+void ConcurrentActuatorLink::start_reading() {
+  if (!reader_) {
+    reader_ = std::make_unique<PeriodicRunner>(reader_period_, [this] { poll_once(); });
+  }
+}
+
+void ConcurrentActuatorLink::stop_reading() noexcept { reader_.reset(); }
 
 void ConcurrentActuatorLink::poll_once() noexcept {
   const std::scoped_lock lock{mutex_};
