@@ -23,9 +23,15 @@ struct LinkTimings {
   std::chrono::milliseconds reply_timeout{100};
   /// How long without a valid device message before the link is `UNAVAILABLE`.
   std::chrono::milliseconds silence_timeout{1500};
+  /// How long the reader goes without taking bytes off the line while it waits.
+  /// Must be well under `stall_bound`, or the reader's own waits would look like
+  /// stalls and the messages it woke for would be discarded.
+  std::chrono::milliseconds reader_period{100};
   /// A reader that finds more than this has passed since it last ran discards
   /// what the line buffered meanwhile instead of stamping it.
   std::chrono::milliseconds stall_bound{200};
+  /// The device's heartbeat interval; startup repeats `SAFE_STATE` at this pace.
+  std::chrono::milliseconds heartbeat_interval{500};
 };
 
 /// The host side of the device protocol, behind `ActuatorLink`
@@ -37,14 +43,32 @@ struct LinkTimings {
 /// waiting (`REQ-DEV-002`).
 ///
 /// **Complete for the host side of the exchanges and of `health()`**
-/// (`device-protocol.md` sections 6 and 7). Not yet built: the startup sequence
-/// of section 8, and the serial port itself.
+/// (`device-protocol.md` sections 6 to 8). Not yet built: the startup sequence
+/// of the serial port itself.
 class SerialActuatorLink final : public pigeon::core::ActuatorLink {
  public:
   /// Sends nothing: nothing is known about the device until it has been heard
   /// (`REQ-COM-003`). `line` and `clock` must outlive the link.
   SerialActuatorLink(ByteStream& line, const pigeon::core::MonotonicClock& clock,
                      LinkTimings timings = {});
+
+  /// Puts the actuator system in its safe state if the line is open
+  /// (`REQ-SAF-004`, section 8, shutdown). Best effort: costs at most the reply
+  /// timeout, is never retransmitted, and cannot report a failure to anyone. The
+  /// line is closed by whoever owns the `ByteStream`, after the link is gone.
+  ~SerialActuatorLink() override;
+
+  /// Brings the link up (section 8, startup): waits to hear the device, because a
+  /// board that has just reset is not listening, then sends `SAFE_STATE` and
+  /// repeats it once per heartbeat interval, each time as a new command, until
+  /// one is accepted.
+  ///
+  /// Gives up at `max_wait` after the call. Returns `OK` once a `SAFE_STATE` is
+  /// accepted; `UNAVAILABLE` if the line is not open or the device was never
+  /// heard, in which case **nothing was transmitted**; otherwise the outcome of
+  /// the last attempt. How long to wait is the caller's decision: the
+  /// specification repeats "until one is accepted" and fixes no limit.
+  [[nodiscard]] pigeon::core::LinkStatus start_up(std::chrono::milliseconds max_wait);
 
   [[nodiscard]] pigeon::core::LinkStatus send_aiming_command(
       const pigeon::core::AimingCommand& command) override;
@@ -79,6 +103,10 @@ class SerialActuatorLink final : public pigeon::core::ActuatorLink {
   [[nodiscard]] pigeon::core::LinkStatus exchange(pigeon::protocol::MessageType type,
                                                   std::uint8_t seq,
                                                   std::span<const std::uint8_t> wire);
+
+  /// Waits for the line, but never longer than the reader period, so that the
+  /// reader keeps running at the pace the stall rule assumes (section 7).
+  void wait_for_line(std::chrono::milliseconds remaining) noexcept;
 
   void on_message(pigeon::protocol::ByteView encoded, std::chrono::milliseconds now) noexcept;
 

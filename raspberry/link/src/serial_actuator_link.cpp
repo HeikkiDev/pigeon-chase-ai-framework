@@ -1,5 +1,6 @@
 #include "pigeon/raspberry/serial_actuator_link.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -76,6 +77,47 @@ SerialActuatorLink::SerialActuatorLink(ByteStream& line, const pigeon::core::Mon
                                        LinkTimings timings)
     : line_{line}, clock_{clock}, timings_{timings}, last_poll_{clock.now().since_epoch} {}
 
+SerialActuatorLink::~SerialActuatorLink() {
+  // Attempted whenever the line is open, even if the device was never heard:
+  // it is the operation that must work when nothing else does (section 6.1).
+  if (line_.is_open()) {
+    static_cast<void>(send_safe_state_command());
+  }
+}
+
+LinkStatus SerialActuatorLink::start_up(std::chrono::milliseconds max_wait) {
+  if (!line_.is_open()) {
+    return LinkStatus::UNAVAILABLE;
+  }
+  const auto deadline = clock_.now().since_epoch + max_wait;
+
+  // Nothing is sent until the device has been heard (section 8).
+  poll();
+  while (!last_heard_.has_value()) {
+    const auto now = clock_.now().since_epoch;
+    if (now >= deadline) {
+      return LinkStatus::UNAVAILABLE;
+    }
+    wait_for_line(deadline - now);
+    poll();
+  }
+
+  for (;;) {
+    const auto attempted_at = clock_.now().since_epoch;
+    const LinkStatus status = send_safe_state_command();
+    const auto next_attempt = attempted_at + timings_.heartbeat_interval;
+    if (status == LinkStatus::OK || next_attempt >= deadline) {
+      return status;
+    }
+    // Once per heartbeat interval, measured from the previous attempt. Keep
+    // reading the line meanwhile, so that liveness stays current.
+    for (auto now = clock_.now().since_epoch; now < next_attempt; now = clock_.now().since_epoch) {
+      wait_for_line(next_attempt - now);
+      poll();
+    }
+  }
+}
+
 LinkStatus SerialActuatorLink::send_aiming_command(const pigeon::core::AimingCommand& command) {
   const std::uint8_t seq = next_seq_++;
   pigeon::protocol::AimPayload payload;
@@ -138,7 +180,7 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
     if (now >= deadline) {  // elapsed >= timeout (ADR-0014)
       break;
     }
-    line_.wait_readable(deadline - now);
+    wait_for_line(deadline - now);
   }
   pending_.reset();
   // Any answer, even a refusal, shows commands are being answered; a fault does
@@ -155,6 +197,10 @@ LinkStatus SerialActuatorLink::exchange(MessageType type, std::uint8_t seq,
     }
   }
   return outcome;
+}
+
+void SerialActuatorLink::wait_for_line(std::chrono::milliseconds remaining) noexcept {
+  line_.wait_readable(std::min(remaining, timings_.reader_period));
 }
 
 void SerialActuatorLink::poll() noexcept {
