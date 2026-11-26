@@ -130,8 +130,7 @@ TEST_F(RealDetectorTest, ConfidentNonBirdClassIsNone) {
 // Encodes REQ-DET-001: "the detector never returns any other value and never
 // throws for a well-formed frame", over every real image in the suite.
 TEST_F(RealDetectorTest, EveryFixtureIsClassifiedAsExactlyOneOfTwoValues) {
-  for (const std::string& name :
-       {"pigeon_640x480.ppm", "brick_wall_320x240.ppm", "car_320x240.ppm"}) {
+  for (const char* name : {"pigeon_640x480.ppm", "brick_wall_320x240.ppm", "car_320x240.ppm"}) {
     const PpmImage image = fixture(name);
     ASSERT_TRUE(image.loaded());
 

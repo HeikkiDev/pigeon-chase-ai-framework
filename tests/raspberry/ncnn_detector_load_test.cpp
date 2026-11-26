@@ -255,8 +255,7 @@ TEST(UncalibratedNcnnDetector, ReportsNoneForEveryFixture) {
   ASSERT_EQ(loaded.status, ModelLoadStatus::OK);
   ASSERT_NE(loaded.detector, nullptr);
 
-  for (const std::string& name :
-       {"pigeon_640x480.ppm", "brick_wall_320x240.ppm", "car_320x240.ppm"}) {
+  for (const char* name : {"pigeon_640x480.ppm", "brick_wall_320x240.ppm", "car_320x240.ppm"}) {
     const PpmImage image = load_ppm(fixture_path(name));
     ASSERT_TRUE(image.loaded()) << "fixture missing: " << name;
 

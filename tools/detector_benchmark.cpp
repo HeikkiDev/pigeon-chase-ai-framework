@@ -15,8 +15,8 @@
 ///
 /// Usage:
 ///
-///     pigeon_detector_benchmark --param <file> --weights <file> \
-///         [--threshold <float>] [--threads <n>] [--bf16] [--repeats <n>] \
+///     pigeon_detector_benchmark --param <file> --weights <file>
+///         [--threshold <float>] [--threads <n>] [--bf16] [--repeats <n>]
 ///         <frame.ppm> [<frame.ppm> ...]
 ///
 /// The frames are binary PPM ("P6"), whose payload is already the RGB888 byte
@@ -170,6 +170,7 @@ std::uint64_t peak_resident_bytes() {
   if (getrusage(RUSAGE_SELF, &usage) != 0) {
     return 0;
   }
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-union-access): glibc declares ru_maxrss in a union.
   const auto maximum = static_cast<std::uint64_t>(usage.ru_maxrss);
 #ifdef __APPLE__
   return maximum;
