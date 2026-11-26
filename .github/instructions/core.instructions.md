@@ -26,7 +26,8 @@ compiler and nothing else.
 - Detection contracts (the `NONE` / `FOUND` result type and its interface).
 - The target state machine (`SEARCHING`, `TARGET_LOCKED`, `TARGET_LOST`).
 - Targeting maths: image position to servo angles, and clamping.
-- Command generation for the actuator system, and protocol encoding/decoding.
+- Command generation for the actuator system: the *operations* (`ActuatorLink`),
+  not their encoding. The wire encoding lives in `protocol/` (ADR-0021).
 - Safety policy: exclusion zones, bounded fire duration, fail-safe defaults.
 - Interfaces for everything hardware-shaped, plus their simulated
   implementations.

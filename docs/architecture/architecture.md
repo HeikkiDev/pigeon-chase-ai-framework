@@ -303,12 +303,16 @@ manual and this document owns the product description.
 | Module       | Responsibility                                                | May depend on          |
 | ------------ | ------------------------------------------------------------- | ---------------------- |
 | `core/`      | Detection contracts, target state machine, targeting maths, command generation | C++ standard library only |
-| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`, ncnn          |
-| `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries only |
-| `tests/`     | Verification of the above using simulated implementations     | `core/`, GoogleTest    |
+| `protocol/`  | The device wire codec shared by both ends of the link: CRC-16, COBS framing, message encode and decode (ADR-0021) | C++ standard library only, a freestanding subset |
+| `raspberry/` | Camera capture, model runtime, serial host side               | `core/`, `protocol/`, ncnn |
+| `arduino/`   | Servo and water actuator firmware, hardware safety limits     | Arduino libraries, `protocol/` |
+| `tests/`     | Verification of the above using simulated implementations     | `core/`, `protocol/`, GoogleTest |
 
-The dependency direction is one-way into `core/`. A hardware header appearing
-anywhere under `core/` is an architectural defect, not a style issue.
+The dependency direction is one-way into `core/` and into `protocol/`. A
+hardware header appearing anywhere under `core/` or `protocol/` is an
+architectural defect, not a style issue. `core/` does not depend on
+`protocol/`: it models the device boundary as operations, and the encoding that
+carries them is `protocol/`'s business (ADR-0007, ADR-0021).
 
 ## Testing Strategy
 
