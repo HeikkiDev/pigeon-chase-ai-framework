@@ -44,11 +44,15 @@ TEST(ReaderThread, AHeartbeatMakesTheLinkHealthyWithNoCallerPolling) {
   ASSERT_EQ(link.health(), LinkStatus::UNAVAILABLE);
 
   link.start_reading();
-  device.send(kHeartbeat);
 
+  // Sent again until it is heard, as the device does every 500 ms. A single one can
+  // rightly be discarded: if more than the 200 ms stall bound passes between
+  // building the link and the reader's first poll (a loaded machine), that poll
+  // treats what the line buffered as stale and drops it (section 7).
   const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds{10};
   while (link.health() != LinkStatus::OK && std::chrono::steady_clock::now() < give_up) {
-    std::this_thread::sleep_for(std::chrono::milliseconds{5});
+    device.send(kHeartbeat);
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
   }
   EXPECT_EQ(link.health(), LinkStatus::OK);
 }
