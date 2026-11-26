@@ -13,6 +13,10 @@
 #   REQ-DEV-001  the system builds, runs and is tested with no hardware present
 #   REQ-DEV-002  no wall clock or unseeded randomness in domain logic
 #   REQ-DEV-003  the default suite opens no serial port or camera device
+#   ADR-0021     protocol/, the device codec shared with the firmware, is a
+#                freestanding subset: no hardware, no clock, no allocation, no
+#                exceptions, no virtual functions, no dependence on the rest of
+#                the repository
 #
 # Usage:
 #   scripts/arch-check.sh                # check this repository
@@ -138,6 +142,75 @@ check_refusal_switch() {
   done < <(sources_in "$ROOT/core")
 }
 
+# protocol/ may include only freestanding headers and its own (ADR-0021).
+#
+# The codec is compiled into the firmware by a toolchain that has not been
+# chosen, and a freestanding C++ implementation is guaranteed only these
+# headers. An allowlist is the right shape for this rule: a denylist of
+# <vector>, <string> and <memory> would pass the first allocating header nobody
+# thought to list, and the point is that the set of things the codec can reach
+# is small and known.
+readonly PROTOCOL_SYSTEM_INCLUDES='cstddef|cstdint|climits|limits|type_traits'
+
+check_protocol_includes() {
+  local file entry lineno text name
+  local angle_re='<([^>]+)>'
+  local quote_re='"([^"]+)"'
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    while IFS= read -r entry; do
+      [[ -z "$entry" ]] && continue
+      lineno="${entry%%:*}"
+      text="${entry#*:}"
+      if [[ "$text" =~ $angle_re ]]; then
+        name="${BASH_REMATCH[1]}"
+        if ! printf '%s' "$name" | grep -qE "^(${PROTOCOL_SYSTEM_INCLUDES})$"; then
+          report "<${name}> is not a freestanding header, so protocol/ may not include it (ADR-0021): ${file#"$ROOT"/}:${lineno}"
+        fi
+      elif [[ "$text" =~ $quote_re ]]; then
+        name="${BASH_REMATCH[1]}"
+        if [[ "$name" != pigeon/protocol/* ]]; then
+          report "\"${name}\" is outside protocol/, which may depend on nothing but itself (ADR-0021): ${file#"$ROOT"/}:${lineno}"
+        fi
+      fi
+    done < <(grep -nE '^[[:space:]]*#[[:space:]]*include' "$file" 2>/dev/null || true)
+  done < <(sources_in "$ROOT/protocol")
+}
+
+# protocol/ uses no allocation, exceptions, virtual functions or RTTI (ADR-0021).
+#
+# Matched against code only. A comment saying a function never throws, or a
+# string that says "new message", is not a construct; and `= delete` is the
+# opposite of the expression this bans. Naming a construct in prose must not trip
+# the gate, or the first honest comment would teach people to stop writing them.
+check_protocol_constructs() {
+  local file entry
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    while IFS= read -r entry; do
+      [[ -z "$entry" ]] && continue
+      report "'${entry#*:}' is not allowed in protocol/: no allocation, exceptions, virtual functions or RTTI (ADR-0021): ${file#"$ROOT"/}:${entry%%:*}"
+    done < <(awk '
+      {
+        code = $0
+        if (in_block) {
+          if (sub(/^.*\*\//, "", code)) { in_block = 0 } else { code = "" }
+        }
+        gsub(/"[^"]*"/, "\"\"", code)
+        gsub(/\/\*[^*]*\*\//, " ", code)
+        if (sub(/\/\*.*$/, " ", code)) { in_block = 1 }
+        sub(/\/\/.*$/, "", code)
+        gsub(/=[[:space:]]*delete/, "", code)
+        if (match(code, /(^|[^[:alnum:]_])(new|delete|throw|try|catch|virtual|dynamic_cast|typeid)([^[:alnum:]_]|$)/)) {
+          word = substr(code, RSTART, RLENGTH)
+          gsub(/[^[:alnum:]_]/, "", word)
+          print NR ":" word
+        }
+      }
+    ' "$file" 2>/dev/null || true)
+  done < <(sources_in "$ROOT/protocol")
+}
+
 printf '\n\033[1m==> Checking architectural rules\033[0m\n'
 
 scan "$ROOT/core"  'hardware or platform header in core/ (REQ-DET-002)' "$HARDWARE_INCLUDES" 1
@@ -150,6 +223,13 @@ scan "$ROOT/core"  'model runtime header in core/ (ADR-0019, REQ-DET-002)' "$MOD
 scan "$ROOT/tests" 'model runtime header in tests/ (ADR-0019)'          "$MODEL_RUNTIME_INCLUDES" 1
 check_refusal_switch
 
+scan "$ROOT/protocol" 'hardware or platform header in protocol/ (ADR-0021)' "$HARDWARE_INCLUDES" 1
+scan "$ROOT/protocol" 'I/O header in protocol/ (ADR-0021)'                   "$IO_INCLUDES" 1
+scan "$ROOT/protocol" 'non-deterministic call in protocol/ (REQ-DEV-002)'    "$NONDETERMINISM"
+scan "$ROOT/protocol" 'device path in protocol/ (ADR-0021)'                  "$DEVICE_PATHS"
+check_protocol_includes
+check_protocol_constructs
+
 if [[ "$violations" -gt 0 ]]; then
   printf '\033[31m    FAILED: %d architectural violation(s).\033[0m\n' "$violations" >&2
   printf '    These are architectural defects, not style issues. Move the\n' >&2
@@ -158,4 +238,4 @@ if [[ "$violations" -gt 0 ]]; then
   exit 1
 fi
 
-printf '\033[32m    ok: core/ is hardware-free and the default suite needs no device\033[0m\n'
+printf '\033[32m    ok: core/ and protocol/ are hardware-free and the default suite needs no device\033[0m\n'
