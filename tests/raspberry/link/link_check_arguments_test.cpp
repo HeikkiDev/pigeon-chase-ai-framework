@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "pigeon/raspberry/link_check_arguments.hpp"
@@ -47,11 +48,11 @@ TEST(LinkCheckArguments, HelpIsAskedForAndIsNotAnError) {
   EXPECT_TRUE(parsed.help);
   EXPECT_FALSE(parsed.ok());  // there is nothing to run
   EXPECT_TRUE(parsed.error.empty());
-  EXPECT_NE(pigeon::raspberry::link_check_usage().find("--port"), std::string::npos);
+  EXPECT_NE(pigeon::raspberry::link_check_usage().find("--port"), std::string_view::npos);
 }
 
 TEST(LinkCheckArguments, TheUsageSaysThatItNeverFiresAndThatAimMovesTheServos) {
-  const std::string usage = pigeon::raspberry::link_check_usage();
+  const std::string usage{pigeon::raspberry::link_check_usage()};
 
   EXPECT_NE(usage.find("never fires"), std::string::npos) << usage;
   EXPECT_NE(usage.find("moves the servos"), std::string::npos) << usage;
