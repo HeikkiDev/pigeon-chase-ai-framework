@@ -92,6 +92,18 @@ TEST_F(LinkCheck, ADeviceNeverHeardIsFailedAndNothingIsSentIntoTheSilence) {
   EXPECT_EQ(device.write_calls(), 0U);
 }
 
+TEST_F(LinkCheck, TheReportOfASilentDeviceDoesNotPromiseMoreThanTheCheckDoes) {
+  // Closing the link still sends one SAFE_STATE (device-protocol.md section 8), so
+  // the report may say the check sent no commands, but not that nothing was sent.
+  const LinkStatus started = link.start_up(milliseconds{2000});
+
+  const std::string text = describe(run_link_check(link, started, LinkCheckOptions{}));
+
+  EXPECT_NE(text.find("sent no commands"), std::string::npos) << text;
+  EXPECT_NE(text.find("SAFE_STATE"), std::string::npos) << text;
+  EXPECT_EQ(text.find("nothing was sent"), std::string::npos) << text;
+}
+
 TEST_F(LinkCheck, AnExchangeThatFailsFailsTheCheckAndEveryExchangeIsStillReported) {
   const LinkStatus started = bring_up();
   device.stay_silent();
