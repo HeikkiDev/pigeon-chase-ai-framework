@@ -44,6 +44,10 @@ class ConcurrentActuatorLink final : public pigeon::core::ActuatorLink {
   /// read whatever the caller is doing. Harmless if it is already reading.
   void start_reading();
 
+  /// Whether the reader thread is running. Same contract as `start_reading`: ask
+  /// from the thread that owns the wrapper.
+  [[nodiscard]] bool is_reading() const noexcept { return reader_ != nullptr; }
+
   /// Stops the reader thread and waits for it. Harmless if it is not reading.
   ///
   /// `start_reading` and `stop_reading` belong to the one thread that owns the

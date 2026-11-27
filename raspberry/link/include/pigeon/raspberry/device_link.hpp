@@ -51,6 +51,9 @@ class DeviceLink {
   /// (`SerialActuatorLink::start_up`). `UNAVAILABLE` if the port is not open.
   [[nodiscard]] pigeon::core::LinkStatus start(std::chrono::milliseconds max_wait);
 
+  /// Whether the reader thread is running: true once `start()` has been called.
+  [[nodiscard]] bool is_reading() const noexcept { return link_.is_reading(); }
+
   /// The link to hand to `core/`. Lives as long as this object.
   [[nodiscard]] pigeon::core::ActuatorLink& link() noexcept { return link_; }
 
