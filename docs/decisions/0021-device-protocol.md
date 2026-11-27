@@ -165,9 +165,15 @@ Each is its own change, test-first:
    cannot show the real line speed, parity or stop bits. The real
    `MonotonicClock` is `SteadyClock`, over `std::chrono::steady_clock`. The reader
    that polls every 100 ms is `ConcurrentActuatorLink` with its reader thread
-   (ADR-0023). *Not yet built:* a hand-run check against a real Arduino (a tool
-   under `tools/`, never registered with CTest, like the detector benchmark), and
-   the application entry point that wires the port, the clock and the link together.
+   (ADR-0023). `DeviceLink` owns the port, the clock and that link, in an order that
+   shuts the device down last. The hand-run check is `pigeon_link_check` under
+   `tools/`, never registered with CTest, like the detector benchmark: its steps
+   and its command line are library code tested without hardware, and the tool is
+   a thin `main`. It never sends `FIRE`, sends nothing if the device was not heard,
+   and moves the servos only for an explicit `--aim X Y`. *Not yet done:* running
+   it on a real Arduino, which needs the firmware (follow-up 4), and the
+   application entry point proper (camera, detector and the per-frame loop), which
+   does not exist yet.
 4. **The firmware** (`arduino/`): needs the board named and a toolchain
    decision, and cannot be built by the current CI.
 

@@ -106,10 +106,12 @@ stuck thread cannot be undone.
 
 ### Follow-up work
 
-* Wiring: whatever starts the application on the Pi constructs the port, the clock
-  and this wrapper, calls `start_up`, then hands it to `core/` as its
-  `ActuatorLink`. That is the application's entry point and is not built yet.
-* The hand-run check against a real Arduino (ADR-0021, follow-up 3).
+* Wiring: `DeviceLink` constructs the port, the clock and this wrapper and
+  `start()` starts the reader and calls `start_up`; the application hands `link()`
+  to `core/` as its `ActuatorLink`. The application's entry point proper is not
+  built yet.
+* The hand-run check, `pigeon_link_check`, is built; running it on a real Arduino
+  waits for the firmware (ADR-0021, follow-up 4).
 
 ## Verification
 
