@@ -7,6 +7,7 @@
 
 #include "pigeon/raspberry/byte_stream.hpp"
 #include "pigeon/raspberry/concurrent_actuator_link.hpp"
+#include "pigeon/raspberry/device_link.hpp"
 #include "pigeon/raspberry/link_health.hpp"
 #include "pigeon/raspberry/periodic_runner.hpp"
 #include "pigeon/raspberry/serial_actuator_link.hpp"
