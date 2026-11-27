@@ -7,6 +7,7 @@ add_library(pigeon_raspberry_link
   src/concurrent_actuator_link.cpp
   src/device_link.cpp
   src/link_check.cpp
+  src/link_check_arguments.cpp
   src/link_health.cpp
   src/periodic_runner.cpp
   src/public_headers.cpp
@@ -21,6 +22,7 @@ target_sources(pigeon_raspberry_link
     include/pigeon/raspberry/concurrent_actuator_link.hpp
     include/pigeon/raspberry/device_link.hpp
     include/pigeon/raspberry/link_check.hpp
+    include/pigeon/raspberry/link_check_arguments.hpp
     include/pigeon/raspberry/link_health.hpp
     include/pigeon/raspberry/periodic_runner.hpp
     include/pigeon/raspberry/serial_actuator_link.hpp
