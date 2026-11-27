@@ -67,9 +67,6 @@ endif()
 if(ncnn_FOUND)
   message(STATUS "ncnn found (${ncnn_DIR}): building raspberry/")
   add_subdirectory(raspberry)
-  # The hand-run throughput benchmark, which needs the real detector and is
-  # never registered with CTest (ADR-0019 §9).
-  add_subdirectory(tools)
 elseif("$ENV{PIGEON_STRICT_TOOLS}" STREQUAL "1")
   message(FATAL_ERROR
     "ncnn not found and PIGEON_STRICT_TOOLS=1. Install it with: brew install ncnn")
@@ -78,6 +75,11 @@ else()
     "ncnn not found - raspberry/ and tests/raspberry/ are skipped. "
     "CI builds them (PIGEON_STRICT_TOOLS=1). Install it with: brew install ncnn")
 endif()
+
+# Hand-run tools: never registered with CTest (REQ-DEV-003). After the block above,
+# because the detector benchmark in it is built only when raspberry/ was added; the
+# link check is built everywhere (ADR-0019 section 9, ADR-0021).
+add_subdirectory(tools)
 
 if(PIGEON_BUILD_TESTS)
   enable_testing()
