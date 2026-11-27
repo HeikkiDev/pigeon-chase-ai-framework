@@ -86,7 +86,7 @@ TEST(LinkCheckArguments, AimNeedsTwoNumbers) {
 }
 
 TEST(LinkCheckArguments, ANumberThatIsNotOneIsRefusedNotGuessedAt) {
-  for (const std::vector<std::string> bad : {
+  for (const std::vector<std::string>& bad : {
            std::vector<std::string>{"--port", "/p", "--baud", "fast"},
            std::vector<std::string>{"--port", "/p", "--baud", "-9600"},
            std::vector<std::string>{"--port", "/p", "--wait-seconds", "ten"},
