@@ -169,7 +169,8 @@ Each is its own change, test-first:
    shuts the device down last. The hand-run check is `pigeon_link_check` under
    `tools/`, never registered with CTest, like the detector benchmark: its steps
    and its command line are library code tested without hardware, and the tool is
-   a thin `main`. It never sends `FIRE`, sends nothing if the device was not heard,
+   a thin `main`. It never sends `FIRE`, sends no command if the device was not heard (closing the link still sends the one
+   shutdown `SAFE_STATE`),
    and moves the servos only for an explicit `--aim X Y`. *Not yet done:* running
    it on a real Arduino, which needs the firmware (follow-up 4), and the
    application entry point proper (camera, detector and the per-frame loop), which

@@ -42,10 +42,11 @@ struct LinkCheckReport {
 /// Runs the exchanges of the check on a link that `start_up` has already been
 /// called on, with `started` its outcome.
 ///
-/// If the device was not heard (`started` is not `OK`), **nothing is sent**: the
+/// If the device was not heard (`started` is not `OK`), **no command is sent**: the
 /// specification sends nothing into a silence (`device-protocol.md` section 8),
-/// and the report says so. Otherwise it sends the `SAFE_STATE` exchanges and then
-/// the aim, if one was asked for. It never sends `FIRE`.
+/// and the report says so. (Destroying the link afterwards still sends one
+/// `SAFE_STATE`, which section 8 requires and is always safe.) Otherwise it sends the `SAFE_STATE`
+/// exchanges and then the aim, if one was asked for. It never sends `FIRE`.
 [[nodiscard]] LinkCheckReport run_link_check(pigeon::core::ActuatorLink& link,
                                              pigeon::core::LinkStatus started,
                                              const LinkCheckOptions& options);

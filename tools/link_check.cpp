@@ -5,7 +5,8 @@
 // CTest, so it cannot run in CI by construction (REQ-DEV-003): it needs a board.
 //
 // It never fires. It has no option and no code path that sends FIRE; moving the
-// servos needs an explicit --aim. If the device is not heard it sends nothing.
+// servos needs an explicit --aim. If the device is not heard it sends no commands
+// (closing the link still sends one SAFE_STATE, which is always safe).
 //
 // Exit status: 0 PASSED, 1 FAILED, 2 bad arguments, 3 the port could not be opened,
 // 4 an unexpected error (the link is still shut down: its destructors run).

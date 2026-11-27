@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -74,10 +75,16 @@ std::optional<long> take_whole(Reader& reader) {
   return value.has_value() ? whole_number(*value) : std::nullopt;
 }
 
+/// What a person at a bench could mean. Larger values are a typo, and would hold the
+/// board for hours.
+constexpr long max_wait_seconds = 3600;
+constexpr long max_exchanges = 1000;
+
 std::string_view read_baud(Reader& reader, LinkCheckArguments& arguments) {
   const auto number = take_whole(reader);
-  if (!number.has_value() || *number <= 0) {
-    return "--baud needs a positive whole number";
+  if (!number.has_value() || *number <= 0 ||
+      *number > static_cast<long>(std::numeric_limits<unsigned>::max())) {
+    return "--baud needs a positive whole number that fits in 32 bits";
   }
   arguments.baud_rate = static_cast<unsigned>(*number);
   return {};
@@ -85,8 +92,8 @@ std::string_view read_baud(Reader& reader, LinkCheckArguments& arguments) {
 
 std::string_view read_wait(Reader& reader, LinkCheckArguments& arguments) {
   const auto number = take_whole(reader);
-  if (!number.has_value() || *number <= 0) {
-    return "--wait-seconds needs a positive whole number";
+  if (!number.has_value() || *number <= 0 || *number > max_wait_seconds) {
+    return "--wait-seconds needs a whole number from 1 to 3600";
   }
   arguments.max_wait_seconds = static_cast<int>(*number);
   return {};
@@ -94,8 +101,8 @@ std::string_view read_wait(Reader& reader, LinkCheckArguments& arguments) {
 
 std::string_view read_exchanges(Reader& reader, LinkCheckArguments& arguments) {
   const auto number = take_whole(reader);
-  if (!number.has_value() || *number < 0) {
-    return "--exchanges needs a whole number, zero or more";
+  if (!number.has_value() || *number < 0 || *number > max_exchanges) {
+    return "--exchanges needs a whole number from 0 to 1000";
   }
   arguments.options.safe_state_exchanges = static_cast<int>(*number);
   return {};
@@ -163,7 +170,8 @@ std::string_view link_check_usage() {
          "                      angle outside its own envelope\n"
          "\n"
          "This tool never fires: it has no option and no code path that sends FIRE.\n"
-         "If the device is not heard it sends nothing.\n";
+         "If the device is not heard it sends no commands; closing the link still sends\n"
+         "one SAFE_STATE, which is always safe.\n";
 }
 
 LinkCheckArguments parse_link_check_arguments(const std::vector<std::string>& args) {

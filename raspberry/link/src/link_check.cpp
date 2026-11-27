@@ -64,7 +64,8 @@ std::string describe(const LinkCheckReport& report) {
   std::ostringstream text;
   text << "start-up: " << name_of(report.start_up) << '\n';
   if (report.start_up != LinkStatus::OK) {
-    text << "  the device was not heard, so nothing was sent\n";
+    text << "  the device was not heard, so the check sent no commands\n"
+            "  (closing the link still sends one SAFE_STATE, as the specification requires)\n";
   }
   text << "health after start-up: " << name_of(report.health_after_start) << '\n';
   std::size_t number = 0;
