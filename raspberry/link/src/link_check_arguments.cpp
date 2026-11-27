@@ -83,7 +83,7 @@ constexpr long max_exchanges = 1000;
 std::string_view read_baud(Reader& reader, LinkCheckArguments& arguments) {
   const auto number = take_whole(reader);
   if (!number.has_value() || *number <= 0 ||
-      *number > static_cast<long>(std::numeric_limits<unsigned>::max())) {
+      std::cmp_greater(*number, std::numeric_limits<unsigned>::max())) {
     return "--baud needs a positive whole number that fits in 32 bits";
   }
   arguments.baud_rate = static_cast<unsigned>(*number);
