@@ -72,6 +72,20 @@ TEST(DeviceLink, StartBringsTheLinkUpAgainstARealPortAndTheRealClock) {
   EXPECT_EQ(device.link().send_safe_state_command(), LinkStatus::OK);
 }
 
+TEST(DeviceLink, StartStartsTheReaderThread) {
+  // start_up polls for itself, so the link comes up whether or not anything reads
+  // the line in the background; only this tells the two apart.
+  PseudoTerminal line;
+  ASSERT_TRUE(line.ok());
+  PtyDevice far_end{line};
+  DeviceLink device{line.slave_path()};
+  ASSERT_FALSE(device.is_reading());
+
+  ASSERT_EQ(device.start(kFailureBound), LinkStatus::OK);
+
+  EXPECT_TRUE(device.is_reading());
+}
+
 TEST(DeviceLink, DestroyingItPutsTheActuatorInItsSafeStateLast) {
   PseudoTerminal line;
   ASSERT_TRUE(line.ok());

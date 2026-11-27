@@ -77,4 +77,22 @@ TEST(ReaderThread, ShuttingDownStopsTheReaderAndSendsSafeState) {
   EXPECT_EQ(device.receive(want.size(), 5000), want);
 }
 
+TEST(ReaderThread, ItSaysWhetherItIsReading) {
+  PseudoTerminal device;
+  ASSERT_TRUE(device.ok());
+  SerialPortStream port{device.slave_path()};
+  ASSERT_TRUE(port.is_open());
+  const SteadyClock clock;
+  ConcurrentActuatorLink link{port, clock};
+  EXPECT_FALSE(link.is_reading());
+
+  link.start_reading();
+  EXPECT_TRUE(link.is_reading());
+  link.start_reading();  // harmless the second time
+  EXPECT_TRUE(link.is_reading());
+
+  link.stop_reading();
+  EXPECT_FALSE(link.is_reading());
+}
+
 }  // namespace
