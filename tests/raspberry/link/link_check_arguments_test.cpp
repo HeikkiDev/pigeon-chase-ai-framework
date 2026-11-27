@@ -101,6 +101,27 @@ TEST(LinkCheckArguments, ANumberThatIsNotOneIsRefusedNotGuessedAt) {
   }
 }
 
+TEST(LinkCheckArguments, ANumberTooBigForItsFieldIsRefusedNotWrappedAround) {
+  // 4294967297 is 2^32 + 1: stored in 32 bits it would silently become 1.
+  for (const std::vector<std::string>& bad : {
+           std::vector<std::string>{"--port", "/p", "--baud", "4294967297"},
+           std::vector<std::string>{"--port", "/p", "--baud", "4295082496"},
+           std::vector<std::string>{"--port", "/p", "--wait-seconds", "4294967297"},
+           std::vector<std::string>{"--port", "/p", "--exchanges", "4294967298"},
+       }) {
+    EXPECT_FALSE(parse_link_check_arguments(bad).ok()) << bad.back();
+  }
+}
+
+TEST(LinkCheckArguments, AnAbsurdWaitOrNumberOfExchangesIsRefused) {
+  // A person at a bench would not mean these; they would hold a board for hours.
+  EXPECT_FALSE(parse_link_check_arguments({"--port", "/p", "--wait-seconds", "3601"}).ok());
+  EXPECT_FALSE(parse_link_check_arguments({"--port", "/p", "--exchanges", "1001"}).ok());
+  EXPECT_FALSE(parse_link_check_arguments({"--port", "/p", "--exchanges", "2000000000"}).ok());
+  EXPECT_TRUE(parse_link_check_arguments({"--port", "/p", "--wait-seconds", "3600"}).ok());
+  EXPECT_TRUE(parse_link_check_arguments({"--port", "/p", "--exchanges", "1000"}).ok());
+}
+
 TEST(LinkCheckArguments, ZeroExchangesIsAllowedSoThatOnlyStartUpIsChecked) {
   const auto parsed = parse_link_check_arguments({"--port", "/p", "--exchanges", "0"});
 
