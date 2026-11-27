@@ -271,22 +271,17 @@ bool SerialActuatorLink::heard_within_silence_timeout() const noexcept {
          clock_.now().since_epoch - *last_heard_ < timings_.silence_timeout;
 }
 
+LinkHealthState SerialActuatorLink::health_state() const noexcept {
+  LinkHealthState state;
+  state.open = line_.is_open();
+  state.last_heard = last_heard_;
+  state.faulted = faulted_;
+  state.rejected = rejected_;
+  return state;
+}
+
 LinkStatus SerialActuatorLink::health() const noexcept {
-  // A line that has just opened is UNAVAILABLE, not OK: nothing is known about
-  // the device until it has been heard (section 7).
-  if (!line_.is_open() || !last_heard_.has_value()) {
-    return LinkStatus::UNAVAILABLE;
-  }
-  if (!heard_within_silence_timeout()) {
-    return LinkStatus::UNAVAILABLE;
-  }
-  if (faulted_) {
-    return LinkStatus::TRANSPORT_FAILURE;
-  }
-  if (rejected_) {
-    return LinkStatus::REJECTED;
-  }
-  return LinkStatus::OK;
+  return health_from(health_state(), clock_.now().since_epoch, timings_.silence_timeout);
 }
 
 }  // namespace pigeon::raspberry

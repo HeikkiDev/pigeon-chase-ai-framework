@@ -162,10 +162,19 @@ Each is its own change, test-first:
    port as a `ByteStream`: POSIX, raw mode, 8N1, 9600 to 115200 baud, `select(2)`,
    tested through a pseudo-terminal pair, which the maintainer ruled is not
    physical hardware and so may run in the default suite (Q27). A pseudo-terminal
-   cannot show the real line speed, parity or stop bits. *Not yet built:* a
-   hand-run check against a real Arduino (a tool under `tools/`, never registered
-   with CTest, like the detector benchmark); a real `MonotonicClock`; and whatever
-   drives `SerialActuatorLink::poll()` at least every 100 ms.
+   cannot show the real line speed, parity or stop bits. The real
+   `MonotonicClock` is `SteadyClock`, over `std::chrono::steady_clock`. The reader
+   that polls every 100 ms is `ConcurrentActuatorLink` with its reader thread
+   (ADR-0023). `DeviceLink` owns the port, the clock and that link, in an order that
+   shuts the device down last. The hand-run check is `pigeon_link_check` under
+   `tools/`, never registered with CTest, like the detector benchmark: its steps
+   and its command line are library code tested without hardware, and the tool is
+   a thin `main`. It never sends `FIRE`, sends no command if the device was not heard (closing the link still sends the one
+   shutdown `SAFE_STATE`),
+   and moves the servos only for an explicit `--aim X Y`. *Not yet done:* running
+   it on a real Arduino, which needs the firmware (follow-up 4), and the
+   application entry point proper (camera, detector and the per-frame loop), which
+   does not exist yet.
 4. **The firmware** (`arduino/`): needs the board named and a toolchain
    decision, and cannot be built by the current CI.
 

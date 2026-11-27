@@ -50,7 +50,55 @@ pigeon_add_test(serial_actuator_link_lost_line_test
   LIBS pigeon::raspberry_link
 )
 
+pigeon_add_test(steady_clock_test
+  SOURCES steady_clock_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(link_health_test
+  SOURCES link_health_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(concurrent_actuator_link_test
+  SOURCES concurrent_actuator_link_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(periodic_runner_test
+  SOURCES periodic_runner_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(concurrent_actuator_link_reader_test
+  SOURCES concurrent_actuator_link_reader_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(device_link_test
+  SOURCES device_link_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(link_check_test
+  SOURCES link_check_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
+pigeon_add_test(link_check_arguments_test
+  SOURCES link_check_arguments_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
 foreach(target
+    link_check_arguments_test
+    link_check_test
+    device_link_test
+    periodic_runner_test
+    concurrent_actuator_link_reader_test
+    concurrent_actuator_link_test
+    link_health_test
+    steady_clock_test
     serial_actuator_link_lost_line_test
     serial_port_stream_test
     serial_actuator_link_timing_test

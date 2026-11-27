@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <optional>
 #include <span>
 #include <utility>
@@ -128,6 +129,9 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
   /// Close the line when the next command arrives, without answering it: the port
   /// is lost after the command went out and before its reply.
   void close_on_next_command() noexcept { close_on_next_command_ = true; }
+  /// Run `hook` each time a command arrives, before it is answered: while the
+  /// link is in the middle of the exchange.
+  void on_command(std::function<void()> hook) { on_command_ = std::move(hook); }
   /// Close the line at this time on the test's clock, while the link waits.
   void close_at(std::chrono::milliseconds when) noexcept { close_at_ = when; }
   /// Heartbeat on its own timer from now on, as the real device does from
@@ -213,6 +217,9 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
       command.duration_ms = received.fire.duration_ms;
     }
     commands_.push_back(command);
+    if (on_command_) {
+      on_command_();
+    }
     if (close_on_next_command_) {
       close_on_next_command_ = false;
       open_ = false;
@@ -292,6 +299,7 @@ class SimulatedDevice final : public pigeon::raspberry::ByteStream {
 
   bool open_{true};
   bool close_on_next_command_{false};
+  std::function<void()> on_command_;
   std::optional<std::chrono::milliseconds> close_at_;
   std::size_t waits_while_closed_{0};
   bool fail_writes_{false};
