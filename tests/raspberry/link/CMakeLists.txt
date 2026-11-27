@@ -85,7 +85,13 @@ pigeon_add_test(link_check_test
   LIBS pigeon::raspberry_link
 )
 
+pigeon_add_test(link_check_arguments_test
+  SOURCES link_check_arguments_test.cpp
+  LIBS pigeon::raspberry_link
+)
+
 foreach(target
+    link_check_arguments_test
     link_check_test
     device_link_test
     periodic_runner_test
